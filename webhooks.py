@@ -2,13 +2,12 @@ import logging
 import json
 import hmac
 import hashlib
-import time
 import asyncio
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
@@ -67,7 +66,7 @@ class WebhookService:
         """Internal worker to fetch endpoints and trigger delivery."""
         async with async_session_factory() as session:
             stmt = select(WebhookEndpoint).where(
-                WebhookEndpoint.org_id == org_id, WebhookEndpoint.is_active == True
+                WebhookEndpoint.org_id == org_id, WebhookEndpoint.is_active
             )
             res = await session.execute(stmt)
             endpoints = res.scalars().all()

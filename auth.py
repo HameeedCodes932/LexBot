@@ -149,7 +149,7 @@ async def get_api_key_user(token: str, session: AsyncSession) -> Optional[dict]:
     # Hash the token
     key_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     # Query API Key
-    stmt = select(APIKey).where(APIKey.key_hash == key_hash, APIKey.is_active == True)
+    stmt = select(APIKey).where(APIKey.key_hash == key_hash, APIKey.is_active)
     res = await session.execute(stmt)
     api_key = res.scalar_one_or_none()
     if not api_key:

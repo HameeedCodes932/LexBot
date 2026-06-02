@@ -1,6 +1,4 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 
 from billing import (
     get_user_plan,

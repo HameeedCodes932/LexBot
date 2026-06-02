@@ -1,10 +1,10 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import Organization, OrgMembership, User, Message, Summary, LongTermMemory, Analytics, AuditLog
+from database import Organization, User, Message, Summary, LongTermMemory, Analytics, AuditLog
 
 logger = logging.getLogger(__name__)
 

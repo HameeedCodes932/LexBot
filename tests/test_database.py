@@ -1,5 +1,3 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from database import (
     User, Message, Summary, LongTermMemory, Document,
@@ -10,7 +8,6 @@ from database import (
 
 class TestUserModel:
     def test_has_all_billing_fields(self):
-        import sqlalchemy as sa
         cols = {c.name: c for c in User.__table__.columns}
         assert "stripe_customer_id" in cols
         assert "subscription_status" in cols

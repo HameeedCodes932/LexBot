@@ -20,7 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
 
 import config
-from database import init_db, get_session, Document, User, Invoice, ContractTemplate, Obligation, SavedClause
+from datetime import datetime, timezone
+
+from database import init_db, get_session, Document, User, Invoice, ContractTemplate, Obligation, SavedClause, FeatureUsage, WebhookEndpoint, APIKey, Organization, OrgMembership
 from auth import (
     UserRegister,
     UserLogin,
@@ -58,6 +60,11 @@ from legal_content import (
 )
 from llm_provider import llm_provider
 from search_engine import search_engine
+from organization import org_service
+from audit import audit_service
+from webhooks import webhook_service
+from retention import retention_service
+from sso import sso_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1217,7 +1224,7 @@ async def list_clauses(
     if clause_type:
         query = query.where(SavedClause.clause_type == clause_type)
     if benchmarks_only:
-        query = query.where(SavedClause.is_benchmark == True)
+        query = query.where(SavedClause.is_benchmark)
     query = query.order_by(SavedClause.created_at.desc())
 
     result = await session.execute(query)
@@ -1335,14 +1342,6 @@ app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENTERPRISE & MULTI-TENANCY MODELS & ENDPOINTS (Phase 6)
 # ══════════════════════════════════════════════════════════════════════════════
-
-from organization import org_service
-from audit import audit_service
-from webhooks import webhook_service
-from retention import retention_service
-from sso import sso_service
-from database import WebhookEndpoint, APIKey, Organization, OrgMembership
-
 
 class CreateOrgRequest(BaseModel):
     name: str
@@ -1531,7 +1530,7 @@ async def update_member_role(
             raise HTTPException(status_code=403, detail="Only organization owners can change member roles to owner or modify roles.")
 
     try:
-        membership = await org_service.update_member_role(session, org_id, member_id, body.role)
+        await org_service.update_member_role(session, org_id, member_id, body.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -2064,7 +2063,7 @@ async def delete_my_data(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password.")
 
     from datetime import datetime, timezone
-    from database import Message, Summary, LongTermMemory, Document, Analytics, FeatureUsage, Invoice, Obligation, SavedClause, ContractTemplate, OrgMembership
+    from database import Message, Summary, LongTermMemory, Document, Analytics, FeatureUsage, Invoice, Obligation, SavedClause
 
     deleted = {}
 

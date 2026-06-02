@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -395,7 +394,7 @@ DPA = {
             "content": (
                 "Subject Matter: AI-powered legal document analysis services. "
                 "Duration: Duration of the Service subscription. "
-                f"Nature: Processing of uploaded documents for analysis. "
+                "Nature: Processing of uploaded documents for analysis. "
                 "Purpose: Document review, clause extraction, contract comparison, "
                 "obligation tracking, and related AI analysis. "
                 "Categories of Data Subjects: Authorized users of the Customer. "

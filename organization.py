@@ -72,7 +72,7 @@ class OrganizationService:
         stmt = (
             select(Organization)
             .join(OrgMembership, OrgMembership.org_id == Organization.id)
-            .where(OrgMembership.user_id == user_id, OrgMembership.is_active == True)
+            .where(OrgMembership.user_id == user_id, OrgMembership.is_active)
         )
         res = await session.execute(stmt)
         return res.scalar_one_or_none()

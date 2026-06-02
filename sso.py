@@ -1,11 +1,10 @@
 import datetime
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import config
 from database import Organization, User, OrgMembership
 from auth import create_access_token, _user_to_dict
 
@@ -14,7 +13,6 @@ logger = logging.getLogger(__name__)
 # Try importing python3-saml, fallback to simulator if missing
 try:
     from onelogin.saml2.auth import OneLogin_Saml2_Auth
-    from onelogin.saml2.settings import OneLogin_Saml2_Settings
     SAML_SUPPORTED = True
 except ImportError:
     SAML_SUPPORTED = False

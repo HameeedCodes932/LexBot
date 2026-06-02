@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from sqlalchemy import select, update
 
 from auth import (
     hash_password,
@@ -11,7 +10,6 @@ from auth import (
     get_user_by_email,
     get_user_by_id,
     UserRegister,
-    UserLogin,
     Token,
 )
 

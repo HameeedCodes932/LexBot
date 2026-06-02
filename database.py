@@ -2,7 +2,7 @@ import logging
 from typing import AsyncGenerator
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func, Index,
+    Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func, Index,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase

@@ -1,8 +1,6 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 from analytics import get_admin_stats
-from database import User, Document, Analytics, FeatureUsage
 
 
 class TestAdminStats:

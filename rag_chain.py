@@ -15,7 +15,6 @@ from langchain_core.messages import HumanMessage
 
 import config
 from database import Analytics, async_session_factory
-from ingestion import ingestion_service
 from memory_service import memory_service
 from llm_provider import llm_provider
 from search_engine import search_engine

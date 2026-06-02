@@ -1,9 +1,7 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from httpx import AsyncClient, ASGITransport
-from datetime import datetime
 
-import config
 from main import app
 from auth import get_current_user, require_admin
 from database import get_session
