@@ -23,3 +23,8 @@ htmlcov/
 coverage/
 backups/
 *.tar.gz
+data/
+tests/
+.github/
+startup_out.txt
+startup_err.txt
