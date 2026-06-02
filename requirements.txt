@@ -6,7 +6,6 @@ langchain-groq
 langchain-community
 langchain-chroma
 chromadb
-sentence-transformers
 python-jose[cryptography]
 passlib[bcrypt]
 pypdf

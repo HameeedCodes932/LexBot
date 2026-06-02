@@ -1,10 +1,8 @@
 import logging
 import os
 from typing import Optional
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,12 +14,13 @@ logger = logging.getLogger(__name__)
 
 class IngestionService:
     def __init__(self):
-        self._embeddings: Optional[HuggingFaceBgeEmbeddings] = None
+        self._embeddings = None
         self._collections: dict[str, Chroma] = {}
 
     @property
-    def embeddings(self) -> HuggingFaceBgeEmbeddings:
+    def embeddings(self):
         if self._embeddings is None:
+            from langchain_community.embeddings import HuggingFaceBgeEmbeddings
             self._embeddings = HuggingFaceBgeEmbeddings(
                 model_name=config.EMBEDDING_MODEL_NAME,
                 model_kwargs={"device": "cpu"},
