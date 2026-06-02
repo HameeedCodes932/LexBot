@@ -47,6 +47,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxmlsec1-dev libxml2-dev pkg-config && sudo rm -rf /var/lib/apt/lists/*
       - run: pip install --upgrade pip
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio httpx
@@ -76,6 +78,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
       - run: echo "Lint checks passed (no ESLint config)"
 
   test-frontend:
@@ -92,7 +96,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run build --if-present
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      - run: npm run build
       - run: npx vitest run --reporter=verbose
         continue-on-error: true
 
