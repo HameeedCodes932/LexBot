@@ -1,0 +1,36 @@
+{
+  "name": "lexbot-frontend",
+  "private": true,
+  "version": "2.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@sentry/react": "^10.55.0",
+    "axios": "^1.6.0",
+    "html2pdf.js": "^0.10.1",
+    "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "react-markdown": "^9.0.1",
+    "react-router-dom": "^6.20.0",
+    "remark-gfm": "^4.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "vite": "^5.0.0",
+    "vitest": "^4.1.8"
+  }
+}

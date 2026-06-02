@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.lnk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# Database
+*.db
+*.sqlite
+data/
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+
+# ChromaDB
+data/chroma_db/
+
+# Coverage
+.coverage
+htmlcov/
+coverage/
+
+# Cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Reports
+test-results/
+playwright-report/
+
+# Backup
+backups/
+*.tar.gz
+
+# Startup logs
+startup_out.txt
+startup_err.txt

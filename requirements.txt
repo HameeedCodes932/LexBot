@@ -1,0 +1,37 @@
+fastapi
+uvicorn[standard]
+python-multipart
+langchain
+langchain-groq
+langchain-community
+langchain-chroma
+chromadb
+sentence-transformers
+python-jose[cryptography]
+passlib[bcrypt]
+pypdf
+python-docx
+python-dotenv
+slowapi
+sqlalchemy[asyncio]
+asyncpg
+alembic
+psycopg2-binary
+stripe
+sentry-sdk
+# Phase 4: AI & Intelligence Upgrades
+langchain-openai
+langchain-anthropic
+langchain-google-genai
+rank-bm25
+pytesseract
+Pillow
+pdf2image
+httpx
+python3-saml
+langchain-text-splitters
+
+# ── Testing ─────────────────────────────────────────────────
+pytest
+pytest-asyncio
+pytest-mock

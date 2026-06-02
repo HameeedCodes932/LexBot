@@ -1,0 +1,12 @@
+{
+  "name": "LexBot — Legal AI Assistant",
+  "short_name": "LexBot",
+  "description": "AI-powered legal document assistant for contract analysis, clause extraction, and document comparison.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
