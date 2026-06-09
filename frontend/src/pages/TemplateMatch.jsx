@@ -20,7 +20,11 @@ export default function TemplateMatch() {
 
   useEffect(() => {
     getDocuments(1, 100).then((d) => setDocuments(d.items || [])).catch(() => {})
-    getTemplates().then(setTemplates).catch(() => {})
+    getTemplates().then((data) => {
+      if (Array.isArray(data)) { setTemplates(data) }
+      else if (data?.items) { setTemplates(data.items) }
+      else { setTemplates([]) }
+    }).catch(() => {})
   }, [])
 
   const handleMatch = async () => {

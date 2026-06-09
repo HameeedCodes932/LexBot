@@ -48,7 +48,7 @@ export default function UploadModal({ onClose, onSuccess }) {
         onClose()
       }, 1500)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Upload failed.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Upload failed.')
     } finally {
       setUploading(false)
     }

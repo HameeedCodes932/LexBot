@@ -29,7 +29,7 @@ export default function Register() {
       setSuccess('Registration successful! Redirecting to login...')
       setTimeout(() => navigate('/login'), 2000)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Registration failed.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Registration failed.')
     } finally { setLoading(false) }
   }
 

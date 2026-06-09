@@ -321,4 +321,72 @@ export async function uploadBrandingLogo(file) {
   return data
 }
 
+// ── Voice Transcription (Plan 2) ──────────────────────────────────────────────
+export async function transcribeAudio(audioBlob) {
+  const form = new FormData()
+  form.append('file', audioBlob, 'recording.webm')
+  const { data } = await api.post('/api/voice/transcribe', form)
+  return data
+}
+
+// ── Annotations (Plan 2) ─────────────────────────────────────────────────────
+export async function createAnnotation(documentId, annotationType, selectedText, comment, color = 'yellow') {
+  const { data } = await api.post('/api/annotations', {
+    document_id: documentId,
+    annotation_type: annotationType,
+    selected_text: selectedText,
+    comment,
+    color,
+  })
+  return data
+}
+
+export async function getAnnotations(documentId) {
+  const { data } = await api.get('/api/annotations', { params: { document_id: documentId } })
+  return data
+}
+
+export async function deleteAnnotation(annotationId) {
+  const { data } = await api.delete(`/api/annotations/${annotationId}`)
+  return data
+}
+
+export async function exportAnnotatedDocument(documentId) {
+  const { data } = await api.get(`/api/export/document/${documentId}/annotated`, { responseType: 'blob' })
+  return data
+}
+
+// ── Templates (Plan 2) ───────────────────────────────────────────────────────
+export async function createTemplate(name, description, templateType, clauses) {
+  const { data } = await api.post('/api/templates/create', { name, description, template_type: templateType, clauses })
+  return data
+}
+
+export async function updateTemplate(templateId, updates) {
+  const { data } = await api.put(`/api/templates/${templateId}`, updates)
+  return data
+}
+
+export async function deleteTemplate(templateId) {
+  const { data } = await api.delete(`/api/templates/${templateId}`)
+  return data
+}
+
+// ── Language (Plan 2) ────────────────────────────────────────────────────────
+export async function detectLanguage(text) {
+  const { data } = await api.post('/api/language/detect', { text })
+  return data
+}
+
+export async function getLanguages() {
+  const { data } = await api.get('/api/languages')
+  return data
+}
+
+// ── Clause Library share to firm (Plan 2) ────────────────────────────────────
+export async function shareClauseToOrg(clauseId) {
+  const { data } = await api.post(`/api/clauses/${clauseId}/share`)
+  return data
+}
+
 export default api

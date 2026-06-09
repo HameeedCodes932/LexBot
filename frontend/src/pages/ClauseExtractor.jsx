@@ -41,7 +41,17 @@ export default function ClauseExtractor() {
   }
 
   useEffect(() => {
-    getDocuments().then(setDocs).catch(() => {})
+    getDocuments().then((data) => {
+      if (Array.isArray(data)) {
+        setDocs(data)
+      } else if (data?.documents) {
+        setDocs(data.documents)
+      } else if (data?.items) {
+        setDocs(data.items)
+      } else {
+        setDocs([])
+      }
+    }).catch(() => {})
   }, [])
 
   const handleExtract = async () => {
@@ -51,7 +61,8 @@ export default function ClauseExtractor() {
       const data = await extractClauses(documentName, clauseType)
       setResults(data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Extraction failed.')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : detail?.message || 'Extraction failed.')
     } finally { setLoading(false) }
   }
 

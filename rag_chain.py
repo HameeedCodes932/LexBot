@@ -18,6 +18,7 @@ from database import Analytics, async_session_factory
 from memory_service import memory_service
 from llm_provider import llm_provider
 from search_engine import search_engine
+from language_utils import detect_language, get_language_name
 
 logger = logging.getLogger(__name__)
 
@@ -178,11 +179,18 @@ class RAGChain:
             context = "\n\n---\n\n".join(parts)
 
         system_tmpl = custom_system_prompt or config.LEGAL_SYSTEM_PROMPT
+        detected_lang = detect_language(question) if config.ENABLE_MULTILINGUAL else "en"
+        lang_name = get_language_name(detected_lang)
+        if detected_lang == "en":
+            lang_instruction = "Respond in English."
+        else:
+            lang_instruction = f"The user's question appears to be in {lang_name}. Respond in {lang_name} using proper legal terminology for that language. If quoting from documents, provide the quote in its original language followed by a translation."
         fmt_dict = {
             "firm_name": firm_name or config.FIRM_NAME,
             "context": context,
             "summary": summary,
             "long_term_memory": long_term,
+            "language_instruction": lang_instruction,
         }
 
         try:
@@ -340,6 +348,145 @@ class RAGChain:
                 "reranker_used": search_metadata.get("reranker_used", False),
             },
         }
+
+
+    # ── 6. Streaming query pipeline ────────────────────────────────────────────
+    async def query_stream(self, question: str, user_id: int, session_id: str):
+        """
+        Same as query() but yields the answer token by token as Server-Sent Events.
+        Memory saving and analytics happen after the full answer is assembled.
+        """
+        import time
+        start_ms = time.time() * 1000
+
+        # Load memory — create own sessions
+        async with async_session_factory() as db_session:
+            try:
+                recent_messages = await memory_service.loadRecentMessages(
+                    db_session, user_id, session_id
+                )
+                summary = await memory_service.loadSummary(db_session, user_id, session_id)
+                long_term = await memory_service.searchLongTermMemory(
+                    db_session, user_id, question
+                )
+            except Exception:
+                recent_messages = []
+                summary = "No summary available."
+                long_term = ""
+
+        # Question rewriting
+        rewritten = await self.rewriteQuestion(question, recent_messages)
+
+        # Retrieve chunks
+        chunks, search_metadata = self.retrieveChunks(rewritten, user_id)
+
+        # Build context exactly like generateAnswer does
+        if not chunks:
+            context = "No documents found for this query. Please upload relevant legal documents."
+        else:
+            parts = []
+            for doc in chunks:
+                meta = doc.metadata or {}
+                source = meta.get("source", "Unknown Document")
+                chunk_idx = meta.get("chunk_index", "?")
+                parts.append(f"[Document: {source}, Chunk: {chunk_idx}]\n{doc.page_content}")
+            context = "\n\n---\n\n".join(parts)
+
+        detected_lang = detect_language(question) if config.ENABLE_MULTILINGUAL else "en"
+        lang_name = get_language_name(detected_lang)
+        if detected_lang == "en":
+            lang_instruction = "Respond in English."
+        else:
+            lang_instruction = f"The user's question appears to be in {lang_name}. Respond in {lang_name} using proper legal terminology for that language. If quoting from documents, provide the quote in its original language followed by a translation."
+
+        system_content = config.LEGAL_SYSTEM_PROMPT.format(
+            firm_name=config.FIRM_NAME,
+            context=context,
+            summary=summary,
+            long_term_memory=long_term,
+            language_instruction=lang_instruction,
+        )
+
+        # Stream from LLM provider
+        from langchain_core.messages import SystemMessage, HumanMessage
+
+        streaming_llm = llm_provider.get_llm(temperature=0.1, streaming=True)
+
+        full_answer = ""
+        import json
+
+        # Yield metadata first as SSE
+        sources = []
+        for doc in chunks:
+            meta = doc.metadata or {}
+            sources.append({
+                "document": meta.get("source", "Unknown"),
+                "chunk_index": meta.get("chunk_index", 0),
+                "preview": doc.page_content[:250],
+            })
+
+        yield f"data: {json.dumps({'type': 'meta', 'session_id': session_id, 'rewritten_question': rewritten, 'sources': sources})}\n\n"
+
+        # Stream tokens
+        try:
+            async for chunk in streaming_llm.astream(
+                [SystemMessage(content=system_content), HumanMessage(content=rewritten)]
+            ):
+                token = chunk.content
+                if token:
+                    full_answer += token
+                    yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+        except Exception as e:
+            error_msg = f"Streaming error: {str(e)}"
+            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+            return
+
+        # Risk flagging on completed answer
+        risk_flags = []
+        try:
+            RISK_TERMS = [
+                "unlimited liability", "perpetual license", "irrevocable",
+                "auto-renewal", "automatic renewal", "unilateral modification",
+                "sole discretion", "non-compete", "non-solicitation",
+                "indemnify and hold harmless", "waiver of jury trial",
+                "class action waiver", "liquidated damages", "penalty clause",
+                "evergreen clause",
+            ]
+            combined_text = " ".join(doc.page_content for doc in chunks).lower()
+            found_terms = [t for t in RISK_TERMS if t in combined_text]
+            if found_terms:
+                risk_flags = found_terms
+                yield f"data: {json.dumps({'type': 'risk_flags', 'risk_flags': found_terms})}\n\n"
+        except Exception:
+            pass
+
+        # Save memory after stream completes
+        elapsed = int(time.time() * 1000 - start_ms)
+        async with async_session_factory() as session:
+            try:
+                await memory_service.saveMessage(
+                    session, user_id, session_id, "human", question
+                )
+                await memory_service.saveMessage(
+                    session, user_id, session_id, "assistant", full_answer
+                )
+
+                from database import Analytics as AnalyticsModel
+                analytics_entry = AnalyticsModel(
+                    user_id=user_id,
+                    question=question,
+                    response_time_ms=elapsed,
+                    sources_used=len(chunks),
+                )
+                session.add(analytics_entry)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+
+        # Background memory extraction
+        await memory_service.extractMemory(user_id, session_id, question, full_answer)
+
+        yield f"data: {json.dumps({'type': 'done', 'response_time_ms': elapsed})}\n\n"
 
 
 # Singleton

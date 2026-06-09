@@ -29,6 +29,10 @@ pdf2image
 httpx
 python3-saml
 langchain-text-splitters
+reportlab
+langdetect
+pyotp
+qrcode[pil]
 
 # ── Testing ─────────────────────────────────────────────────
 pytest

@@ -59,6 +59,18 @@ class IngestionService:
         except Exception:
             return None
 
+    def get_all_documents_retriever(self, user_id: int, k: int = 8):
+        """
+        Returns a retriever that searches across ALL of this user's documents.
+        Searches the user's single ChromaDB collection which contains all their docs.
+        k is higher than single-doc retrieval to cast a wider net.
+        """
+        try:
+            collection = self.get_collection(user_id)
+            return collection.as_retriever(search_kwargs={"k": k})
+        except Exception:
+            return None
+
     async def ingest_text(
         self, text: str, filename: str, user_id: int, org_id: Optional[int] = None, visibility: str = "personal"
     ) -> dict:
@@ -170,6 +182,8 @@ class IngestionService:
                 "doc_type": r.doc_type,
                 "chunks": r.chunks,
                 "characters": r.characters,
+                "is_privileged": r.is_privileged,
+                "privilege_notes": r.privilege_notes,
                 "uploaded_at": str(r.uploaded_at) if r.uploaded_at else None,
             }
             for r in rows
@@ -248,6 +262,33 @@ class IngestionService:
             "visibility": doc.visibility,
             "shared_by": doc.shared_by,
         }
+
+    async def get_document_text(self, document_id: int, user_id: int) -> Optional[str]:
+        """Retrieve the full text of a document from ChromaDB."""
+        async with async_session_factory() as session:
+            doc = await session.execute(select(Document).where(Document.id == document_id))
+            doc = doc.scalar_one_or_none()
+            if not doc:
+                return None
+            filename = doc.filename
+            org_id = doc.org_id
+            if doc.visibility == "org" and org_id:
+                collection = self.get_org_collection(org_id)
+            else:
+                collection = self.get_collection(user_id)
+            try:
+                db_results = collection._collection.get(where={"source": filename})
+                documents = db_results.get("documents", [])
+                metadatas = db_results.get("metadatas", [])
+                if not documents:
+                    return None
+                sorted_pairs = sorted(
+                    zip(documents, metadatas),
+                    key=lambda x: int(x[1].get("chunk_index", 0)),
+                )
+                return "\n\n".join(pair[0] for pair in sorted_pairs)
+            except Exception:
+                return None
 
     async def share_document_to_org(self, user_id: int, document_id: int, org_id: int) -> bool:
         async with async_session_factory() as session:

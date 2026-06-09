@@ -21,7 +21,7 @@ export default function Login() {
       await login(email, password)
       navigate('/chat')
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Login failed. Please check your credentials.')
     } finally {
       setLoading(false)
     }

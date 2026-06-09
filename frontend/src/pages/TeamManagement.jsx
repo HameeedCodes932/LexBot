@@ -42,7 +42,7 @@ export default function TeamManagement() {
       setInviteEmail('')
       fetchMembers()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to send invitation.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Failed to send invitation.')
     } finally {
       setInviteLoading(false)
     }
@@ -55,7 +55,7 @@ export default function TeamManagement() {
       setMessage('Role updated successfully.')
       fetchMembers()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to change role.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Failed to change role.')
     }
   }
 
@@ -67,7 +67,7 @@ export default function TeamManagement() {
       setMessage('Member removed successfully.')
       fetchMembers()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to remove member.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Failed to remove member.')
     }
   }
 
@@ -81,7 +81,7 @@ export default function TeamManagement() {
       setUser({ ...user, org_id: null, org_role: null, org_name: null })
       logout()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to leave organization.')
+      const detail = err.response?.data?.detail; setError(typeof detail === 'string' ? detail : detail?.message || 'Failed to leave organization.')
     }
   }
 

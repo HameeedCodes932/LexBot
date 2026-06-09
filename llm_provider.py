@@ -49,6 +49,7 @@ class LLMProvider:
         provider: Optional[str] = None,
         temperature: float = 0.1,
         model_override: Optional[str] = None,
+        streaming: bool = False,
     ) -> BaseChatModel:
         """
         Get a LangChain chat LLM for the given provider.
@@ -76,7 +77,7 @@ class LLMProvider:
 
         model_name = model_override or getattr(config, model_attr, "")
 
-        cache_key = f"{provider}:{model_name}:{temperature}"
+        cache_key = f"{provider}:{model_name}:{temperature}:streaming={streaming}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
@@ -92,6 +93,8 @@ class LLMProvider:
 
         # Build constructor kwargs — each provider has slightly different parameter names
         kwargs: dict = {"temperature": temperature}
+        if streaming:
+            kwargs["streaming"] = True
 
         if provider == "groq":
             kwargs["api_key"] = api_key

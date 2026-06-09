@@ -139,7 +139,13 @@ def _user_to_dict(user: User) -> dict:
         "created_at": str(user.created_at) if user.created_at else None,
         "stripe_customer_id": user.stripe_customer_id,
         "subscription_status": user.subscription_status,
+        "is_2fa_enabled": user.is_2fa_enabled if hasattr(user, "is_2fa_enabled") else False,
     }
+
+
+async def get_user_by_id_raw(session: AsyncSession, user_id: int) -> Optional[User]:
+    result = await session.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────────
@@ -159,8 +165,16 @@ async def get_api_key_user(token: str, session: AsyncSession) -> Optional[dict]:
     if api_key.expires_at and api_key.expires_at.replace(tzinfo=None) < datetime.utcnow():
         return None
 
-    # Update last used
+    # Rate limit check (per-key RPM)
+    rpm = api_key.rate_limit_rpm or 60
+    rpd = api_key.rate_limit_rpd or 1000
+    if (api_key.usage_count or 0) >= rpd:
+        logger.warning("API key %s daily limit reached (%s/%s)", api_key.key_prefix, api_key.usage_count, rpd)
+        return None  # Daily limit exceeded
+
+    # Update last used + usage counter
     api_key.last_used_at = datetime.utcnow()
+    api_key.usage_count = (api_key.usage_count or 0) + 1
     session.add(api_key)
 
     # Get user
@@ -245,6 +259,75 @@ async def get_current_user(
         user["org_name"] = None
 
     return user
+
+
+# ── 2FA helpers (Plan 3) ──────────────────────────────────────────────────────
+def generate_totp_secret() -> str:
+    import pyotp
+    return pyotp.random_base32()
+
+
+def get_totp_uri(secret: str, email: str, issuer: str = "LexBot") -> str:
+    import pyotp
+    return pyotp.totp.TOTP(secret).provisioning_uri(name=email, issuer_name=issuer)
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    import pyotp
+    totp = pyotp.TOTP(secret)
+    return totp.verify(code, valid_window=1)
+
+
+async def setup_2fa(session: AsyncSession, user_id: int) -> dict:
+    from database import User as UserModel
+    from sqlalchemy import select
+    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if user.is_2fa_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA is already enabled.")
+    secret = generate_totp_secret()
+    user.totp_secret = secret
+    session.add(user)
+    await session.flush()
+    uri = get_totp_uri(secret, user.email)
+    return {"secret": secret, "uri": uri}
+
+
+async def enable_2fa(session: AsyncSession, user_id: int, code: str) -> dict:
+    from database import User as UserModel
+    from sqlalchemy import select
+    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if not user.totp_secret:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA not initialized. Call setup first.")
+    if not verify_totp_code(user.totp_secret, code):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification code.")
+    user.is_2fa_enabled = True
+    session.add(user)
+    await session.flush()
+    return {"message": "2FA enabled successfully."}
+
+
+async def disable_2fa(session: AsyncSession, user_id: int, code: str) -> dict:
+    from database import User as UserModel
+    from sqlalchemy import select
+    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if not user.is_2fa_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA is not enabled.")
+    if not verify_totp_code(user.totp_secret, code):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code.")
+    user.is_2fa_enabled = False
+    user.totp_secret = None
+    session.add(user)
+    await session.flush()
+    return {"message": "2FA disabled."}
 
 
 async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:

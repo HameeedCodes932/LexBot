@@ -10,7 +10,7 @@ import sentry_sdk
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -20,9 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
 
 import config
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from database import init_db, get_session, Document, User, Invoice, ContractTemplate, Obligation, SavedClause, FeatureUsage, WebhookEndpoint, APIKey, Organization, OrgMembership
+from database import init_db, get_session, Document, User, Message, Summary, Invoice, ContractTemplate, Obligation, SavedClause, FeatureUsage, WebhookEndpoint, APIKey, Organization, OrgMembership, DocumentAnnotation, DocShare, Notification
 from auth import (
     UserRegister,
     UserLogin,
@@ -36,6 +36,11 @@ from auth import (
     promote_user_to_admin,
     require_org_member,
     require_org_admin,
+    setup_2fa,
+    enable_2fa,
+    disable_2fa,
+    verify_totp_code,
+    get_user_by_id_raw,
 )
 from ingestion import ingestion_service
 from rag_chain import rag_chain
@@ -251,12 +256,27 @@ class TemplateMatchRequest(BaseModel):
     template_id: int
 
 
+class TemplateCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    template_type: str = "Custom"
+    clauses: list[dict] = []
+
+
+class TemplateUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    template_type: Optional[str] = None
+    clauses: Optional[list[dict]] = None
+
+
 class SaveClauseRequest(BaseModel):
     clause_type: str
     title: str = ""
     content: str
     source_document: str = ""
     notes: str = ""
+    visibility: str = "personal"  # personal / org
 
 
 class TableExtractRequest(BaseModel):
@@ -265,6 +285,40 @@ class TableExtractRequest(BaseModel):
 
 class BillingPortalRequest(BaseModel):
     origin: str
+
+
+class TimelineRequest(BaseModel):
+    document_name: str
+
+
+class CrossRefRequest(BaseModel):
+    question: str
+    session_id: Optional[str] = None
+
+
+class ObligationRequest(BaseModel):
+    document_name: str
+
+
+class PrivilegeUpdateRequest(BaseModel):
+    is_privileged: bool
+    privilege_notes: str = ""
+
+
+class AnnotationCreateRequest(BaseModel):
+    document_id: int
+    annotation_type: str = "highlight"  # highlight / comment / strikeout / underline
+    page_number: int = 0
+    selected_text: str = ""
+    comment: str = ""
+    color: str = "yellow"
+    position_json: Optional[str] = None
+
+
+class AnnotationUpdateRequest(BaseModel):
+    comment: Optional[str] = None
+    color: Optional[str] = None
+    position_json: Optional[str] = None
 
 
 # ── Phase 2 constants ──────────────────────────────────────────────────────────
@@ -302,7 +356,7 @@ async def register(request: Request, body: UserRegister, session: AsyncSession =
     return {"message": "Registration successful. You may now log in."}
 
 
-@app.post("/api/auth/login", response_model=Token)
+@app.post("/api/auth/login")
 @limiter.limit("10/minute")
 async def login(request: Request, body: UserLogin, session: AsyncSession = Depends(get_session)):
     user = await get_user_by_email(session, body.email)
@@ -310,6 +364,12 @@ async def login(request: Request, body: UserLogin, session: AsyncSession = Depen
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     if not user["is_active"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated. Contact your administrator.")
+
+    # 2FA check
+    if user.get("is_2fa_enabled"):
+        temp_token = create_access_token({"sub": str(user["id"]), "2fa_pending": True, "exp": datetime.utcnow() + timedelta(minutes=5)})
+        return {"2fa_required": True, "temp_token": temp_token, "user_id": user["id"]}
+
     token = create_access_token({"sub": str(user["id"])})
     safe_user = {k: v for k, v in user.items() if k != "hashed_password"}
     return Token(access_token=token, token_type="bearer", user=safe_user)
@@ -318,6 +378,76 @@ async def login(request: Request, body: UserLogin, session: AsyncSession = Depen
 @app.get("/api/auth/me")
 async def me(current_user: dict = Depends(get_current_user)):
     return {k: v for k, v in current_user.items() if k != "hashed_password"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  2FA ENDPOINTS (Plan 3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TwoFASetupResponse(BaseModel):
+    secret: str
+    uri: str
+    qr_b64: Optional[str] = None
+
+
+class TwoFAVerifyRequest(BaseModel):
+    code: str
+
+
+class TwoFALoginRequest(BaseModel):
+    temp_token: str
+    code: str
+
+
+@app.post("/api/auth/2fa/setup")
+async def setup_2fa_endpoint(current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await setup_2fa(session, current_user["id"])
+    import base64
+    import io
+    import qrcode
+    qr = qrcode.make(result["uri"])
+    buf = io.BytesIO()
+    qr.save(buf, format="PNG")
+    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+    return TwoFASetupResponse(secret=result["secret"], uri=result["uri"], qr_b64=qr_b64)
+
+
+@app.post("/api/auth/2fa/verify")
+async def verify_2fa_endpoint(body: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await enable_2fa(session, current_user["id"], body.code)
+    return result
+
+
+@app.post("/api/auth/2fa/disable")
+async def disable_2fa_endpoint(body: TwoFAVerifyRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await disable_2fa(session, current_user["id"], body.code)
+    return result
+
+
+@app.post("/api/auth/2fa/login")
+@limiter.limit("10/minute")
+async def login_2fa(request: Request, body: TwoFALoginRequest, session: AsyncSession = Depends(get_session)):
+    from jose import JWTError
+    credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired 2FA token.")
+    try:
+        payload = jwt.decode(body.temp_token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        if not payload.get("2fa_pending"):
+            raise credentials_exception
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    raw_user = await get_user_by_id_raw(session, int(user_id))
+    if not raw_user or not raw_user.is_active or not raw_user.totp_secret:
+        raise credentials_exception
+    if not verify_totp_code(raw_user.totp_secret, body.code):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code.")
+
+    token = create_access_token({"sub": str(user_id)})
+    user_dict = {k: v for k, v in (await get_user_by_email(session, raw_user.email) or {}).items() if k != "hashed_password"}
+    return Token(access_token=token, token_type="bearer", user=user_dict)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -388,6 +518,92 @@ async def chat(
 
     result["disclaimer"] = DISCLAIMER_SHORT if config.AI_DISCLAIMER_ENABLED else None
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CHAT STREAMING (Phase 5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/chat/stream")
+async def chat_stream(
+    body: ChatRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Streaming version of /api/chat.
+    Returns Server-Sent Events (SSE).
+    Frontend listens with EventSource or fetch + ReadableStream.
+    """
+    session_id = body.session_id or str(uuid.uuid4())
+    return StreamingResponse(
+        rag_chain.query_stream(
+            question=body.question,
+            user_id=current_user["id"],
+            session_id=session_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  VOICE / SPEECH-TO-TEXT (Plan 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25 MB
+ALLOWED_AUDIO_TYPES = {"audio/webm", "audio/ogg", "audio/wav", "audio/mp4", "audio/mpeg", "audio/x-m4a", "audio/mp3"}
+
+
+@app.post("/api/voice/transcribe")
+async def transcribe_voice(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    if not config.ENABLE_VOICE:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Voice transcription is disabled.")
+
+    if file.content_type not in ALLOWED_AUDIO_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported audio type '{file.content_type}'. Allowed: webm, ogg, wav, mp4, mpeg, m4a, mp3.")
+
+    contents = await file.read()
+    if len(contents) > MAX_AUDIO_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Audio file exceeds 25MB limit.")
+
+    try:
+        import httpx
+        groq_api = config.GROQ_API_KEY
+        model = config.WHISPER_MODEL
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {groq_api}"},
+                files={"file": (file.filename or "audio.webm", contents, file.content_type or "audio/webm")},
+                data={"model": model, "response_format": "json", "language": "en"},
+            )
+
+        if resp.status_code != 200:
+            logger.error("Groq Whisper error: %s %s", resp.status_code, resp.text)
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Speech-to-text service returned an error.")
+
+        result = resp.json()
+        text = result.get("text", "").strip()
+        if not text:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Speech-to-text returned empty result.")
+
+        logger.info("Voice transcribed for user %s: %s", current_user["id"], text[:80])
+        return {"text": text}
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Speech-to-text service timed out.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Voice transcription failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Speech-to-text service is temporarily unavailable.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -568,6 +784,66 @@ async def delete_document(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  PRIVILEGE LOCK (Plan 3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.patch("/api/documents/{document_id}/privilege")
+async def update_document_privilege(
+    document_id: int,
+    body: PrivilegeUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Document).where(Document.id == document_id, Document.user_id == current_user["id"])
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    await session.execute(
+        update(Document).where(Document.id == document_id).values(
+            is_privileged=body.is_privileged,
+            privilege_notes=body.privilege_notes,
+        )
+    )
+    from audit import audit_service
+    await audit_service.log(
+        session=session,
+        org_id=current_user.get("org_id"),
+        user_id=current_user["id"],
+        action="document.privilege_update",
+        resource_type="document",
+        resource_id=str(document_id),
+        details={"is_privileged": body.is_privileged},
+    )
+    action = "marked as privileged" if body.is_privileged else "privilege removed"
+    return {"message": f"Document {action}."}
+
+
+@app.get("/api/documents/privileged")
+async def list_privileged_documents(
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Document)
+        .where(Document.user_id == current_user["id"], Document.is_privileged)
+        .order_by(Document.uploaded_at.desc())
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "filename": r.filename,
+            "is_privileged": r.is_privileged,
+            "privilege_notes": r.privilege_notes,
+            "uploaded_at": str(r.uploaded_at) if r.uploaded_at else None,
+        }
+        for r in rows
+    ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MEMORY ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -585,6 +861,333 @@ async def get_memory(session_id: str, current_user: dict = Depends(get_current_u
 async def clear_memory(session_id: str, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     await memory_service.clearSessionMemory(session, current_user["id"], session_id)
     return {"message": f"Memory cleared for session '{session_id}'."}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SESSION PDF EXPORT (Phase 10)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/export/session/{session_id}")
+async def export_session_pdf(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Export a chat session as a professionally formatted PDF report.
+    Includes all messages, sources cited, and risk flags raised.
+    """
+    user_id = current_user["id"]
+
+    # Load session messages from SQLite
+    messages_result = await session.execute(
+        select(Message.role, Message.content, Message.created_at)
+        .where(Message.user_id == user_id, Message.session_id == session_id)
+        .order_by(Message.created_at.asc())
+    )
+    messages = messages_result.all()
+
+    summary_result = await session.execute(
+        select(Summary.summary)
+        .where(Summary.user_id == user_id, Summary.session_id == session_id)
+        .order_by(Summary.updated_at.desc())
+        .limit(1)
+    )
+    summary_row = summary_result.scalar_one_or_none()
+
+    if not messages:
+        raise HTTPException(status_code=404, detail="No messages found for this session.")
+
+    # Build PDF with reportlab
+    from fastapi.responses import StreamingResponse as FileStreamingResponse
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.colors import HexColor, black, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.units import mm
+    from datetime import datetime
+
+    buffer = io.BytesIO()
+    pdf_doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20*mm,
+        leftMargin=20*mm,
+        topMargin=20*mm,
+        bottomMargin=20*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    NAVY = HexColor("#0f172a")
+    LIGHT_GRAY = HexColor("#f8fafc")
+    MID_GRAY = HexColor("#64748b")
+
+    title_style = ParagraphStyle("Title", parent=styles["Normal"],
+        fontSize=20, textColor=NAVY, fontName="Helvetica-Bold", spaceAfter=4)
+    subtitle_style = ParagraphStyle("Subtitle", parent=styles["Normal"],
+        fontSize=10, textColor=MID_GRAY, spaceAfter=16)
+    section_style = ParagraphStyle("Section", parent=styles["Normal"],
+        fontSize=11, textColor=NAVY, fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=6)
+    q_style = ParagraphStyle("Question", parent=styles["Normal"],
+        fontSize=10, textColor=NAVY, fontName="Helvetica-Bold",
+        backColor=LIGHT_GRAY, borderPad=6, spaceAfter=4)
+    a_style = ParagraphStyle("Answer", parent=styles["Normal"],
+        fontSize=10, textColor=black, leading=15, spaceAfter=12)
+    meta_style = ParagraphStyle("Meta", parent=styles["Normal"],
+        fontSize=9, textColor=MID_GRAY, spaceAfter=16)
+
+    story = []
+
+    # Header
+    story.append(Paragraph(f"{config.FIRM_NAME}", title_style))
+    story.append(Paragraph("Legal Research Session Report", subtitle_style))
+    story.append(Paragraph(
+        f"Session ID: {session_id[:12]}...  |  Exported: {datetime.now().strftime('%d %b %Y %H:%M')}  |  User: {current_user['username']}",
+        meta_style
+    ))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=NAVY))
+    story.append(Spacer(1, 12))
+
+    # Summary if available
+    if summary_row:
+        story.append(Paragraph("Session summary", section_style))
+        story.append(Paragraph(summary_row.summary, a_style))
+        story.append(HRFlowable(width="100%", thickness=0.3, color=LIGHT_GRAY))
+        story.append(Spacer(1, 8))
+
+    # Messages
+    story.append(Paragraph("Research transcript", section_style))
+    msg_list = [{"role": m.role, "content": m.content} for m in messages]
+    qa_pairs = []
+    i = 0
+    while i < len(msg_list):
+        if msg_list[i]["role"] == "human":
+            q = msg_list[i]
+            a = msg_list[i+1] if i+1 < len(msg_list) and msg_list[i+1]["role"] == "assistant" else None
+            qa_pairs.append((q, a))
+            i += 2 if a else 1
+        else:
+            i += 1
+
+    for idx, (q, a) in enumerate(qa_pairs, 1):
+        story.append(Paragraph(f"Q{idx}: {q['content']}", q_style))
+        if a:
+            answer_text = a["content"][:2000].replace("<", "&lt;").replace(">", "&gt;")
+            story.append(Paragraph(answer_text, a_style))
+        story.append(Spacer(1, 6))
+
+    # Footer note
+    story.append(HRFlowable(width="100%", thickness=0.5, color=NAVY))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(
+        f"This report was generated by {config.FIRM_NAME} LexBot 2.0. "
+        "All answers are based solely on uploaded documents and should be reviewed by a qualified legal professional.",
+        meta_style
+    ))
+
+    pdf_doc.build(story)
+    buffer.seek(0)
+
+    safe_session = session_id[:8]
+    return FileStreamingResponse(
+        iter([buffer.read()]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="session_{safe_session}_report.pdf"'
+        }
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ANNOTATED PDF EXPORT (Plan 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/annotations")
+async def create_annotation(body: AnnotationCreateRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    annotation = DocumentAnnotation(
+        user_id=current_user["id"],
+        document_id=body.document_id,
+        annotation_type=body.annotation_type,
+        page_number=body.page_number,
+        selected_text=body.selected_text,
+        comment=body.comment,
+        color=body.color,
+        position_json=body.position_json,
+    )
+    session.add(annotation)
+    await session.flush()
+    return {
+        "id": annotation.id,
+        "message": f"{body.annotation_type} annotation created.",
+    }
+
+
+@app.get("/api/annotations")
+async def list_annotations(
+    document_id: int = Query(...),
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(DocumentAnnotation)
+        .where(DocumentAnnotation.document_id == document_id, DocumentAnnotation.user_id == current_user["id"])
+        .order_by(DocumentAnnotation.created_at.asc())
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "document_id": r.document_id,
+            "annotation_type": r.annotation_type,
+            "page_number": r.page_number,
+            "selected_text": r.selected_text,
+            "comment": r.comment,
+            "color": r.color,
+            "position_json": r.position_json,
+            "created_at": str(r.created_at) if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+@app.patch("/api/annotations/{annotation_id}")
+async def update_annotation(annotation_id: int, body: AnnotationUpdateRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(DocumentAnnotation).where(DocumentAnnotation.id == annotation_id, DocumentAnnotation.user_id == current_user["id"])
+    )
+    ann = result.scalar_one_or_none()
+    if not ann:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Annotation not found.")
+    updates = {}
+    if body.comment is not None:
+        updates["comment"] = body.comment
+    if body.color is not None:
+        updates["color"] = body.color
+    if body.position_json is not None:
+        updates["position_json"] = body.position_json
+    if updates:
+        await session.execute(update(DocumentAnnotation).where(DocumentAnnotation.id == annotation_id).values(**updates))
+    return {"message": "Annotation updated."}
+
+
+@app.delete("/api/annotations/{annotation_id}")
+async def delete_annotation(annotation_id: int, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(DocumentAnnotation).where(DocumentAnnotation.id == annotation_id, DocumentAnnotation.user_id == current_user["id"])
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Annotation not found.")
+    await session.execute(delete(DocumentAnnotation).where(DocumentAnnotation.id == annotation_id))
+    return {"message": "Annotation deleted."}
+
+
+@app.get("/api/export/document/{document_id}/annotated")
+async def export_annotated_document_pdf(
+    document_id: int,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    doc_result = await session.execute(
+        select(Document).where(Document.id == document_id, Document.user_id == current_user["id"])
+    )
+    document = doc_result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    annotations_result = await session.execute(
+        select(DocumentAnnotation)
+        .where(DocumentAnnotation.document_id == document_id, DocumentAnnotation.user_id == current_user["id"])
+        .order_by(DocumentAnnotation.created_at.asc())
+    )
+    annotations = annotations_result.scalars().all()
+
+    from fastapi.responses import StreamingResponse as FileStreamingResponse
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.colors import HexColor, black, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.units import mm
+
+    buffer = io.BytesIO()
+    pdf_doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20*mm, leftMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+
+    styles = getSampleStyleSheet()
+    NAVY = HexColor("#0f172a")
+    AMBER = HexColor("#f59e0b")
+    LIGHT_GRAY = HexColor("#f8fafc")
+    MID_GRAY = HexColor("#64748b")
+    HIGHLIGHT_YELLOW = HexColor("#fef3c7")
+    HIGHLIGHT_GREEN = HexColor("#d1fae5")
+    HIGHLIGHT_RED = HexColor("#fee2e2")
+    HIGHLIGHT_BLUE = HexColor("#dbeafe")
+
+    COLOR_MAP = {
+        "yellow": HIGHLIGHT_YELLOW,
+        "green": HIGHLIGHT_GREEN,
+        "red": HIGHLIGHT_RED,
+        "blue": HIGHLIGHT_BLUE,
+    }
+
+    title_style = ParagraphStyle("Title", parent=styles["Normal"], fontSize=18, textColor=NAVY, fontName="Helvetica-Bold", spaceAfter=4)
+    subtitle_style = ParagraphStyle("Subtitle", parent=styles["Normal"], fontSize=10, textColor=MID_GRAY, spaceAfter=12)
+    section_style = ParagraphStyle("Section", parent=styles["Normal"], fontSize=12, textColor=NAVY, fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=6)
+    body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, textColor=black, leading=15, spaceAfter=8)
+    annotation_style = ParagraphStyle("Annotation", parent=styles["Normal"], fontSize=9, textColor=NAVY, leading=13, spaceAfter=4)
+    meta_style = ParagraphStyle("Meta", parent=styles["Normal"], fontSize=9, textColor=MID_GRAY, spaceAfter=16)
+
+    story = []
+    story.append(Paragraph(f"{config.FIRM_NAME}", title_style))
+    story.append(Paragraph("Annotated Document Report", subtitle_style))
+    story.append(Paragraph(f"Document: {document.filename}  |  User: {current_user['username']}", meta_style))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=NAVY))
+    story.append(Spacer(1, 12))
+
+    if annotations:
+        story.append(Paragraph(f"Annotations ({len(annotations)})", section_style))
+        for ann in annotations:
+            bg = COLOR_MAP.get(ann.color, HIGHLIGHT_YELLOW)
+            label = ann.annotation_type.capitalize()
+            story.append(Paragraph(
+                f'<para backcolor="{bg.hexval()}"><b>{label}:</b> '
+                f'{ann.selected_text[:200] if ann.selected_text else "(no text selected)"}</para>',
+                annotation_style,
+            ))
+            if ann.comment:
+                story.append(Paragraph(f"<i>Note: {ann.comment}</i>", meta_style))
+            story.append(Spacer(1, 4))
+
+        story.append(HRFlowable(width="100%", thickness=0.3, color=LIGHT_GRAY))
+        story.append(Spacer(1, 8))
+
+    story.append(Paragraph("Document content", section_style))
+
+    doc_text = await ingestion_service.get_document_text(document_id, current_user["id"])
+    if doc_text:
+        for line in doc_text.split("\n"):
+            if line.strip():
+                story.append(Paragraph(line.strip()[:500].replace("<", "&lt;").replace(">", "&gt;"), body_style))
+    else:
+        story.append(Paragraph("<i>Document text not available for direct embedding.</i>", body_style))
+
+    story.append(Spacer(1, 12))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=NAVY))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(
+        f"This annotated report was generated by {config.FIRM_NAME} LexBot 2.0.",
+        meta_style,
+    ))
+
+    pdf_doc.build(story)
+    buffer.seek(0)
+
+    safe_name = document.filename.replace(".", "_")
+    return FileStreamingResponse(
+        iter([buffer.read()]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_annotated.pdf"',
+        },
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -785,6 +1388,194 @@ async def compare_clauses(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  LEGAL TIMELINE BUILDER (Phase 6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/timeline")
+async def build_timeline(
+    body: TimelineRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Extract all dates, deadlines, and obligations from a document
+    and return them sorted chronologically.
+    """
+    user_id = current_user["id"]
+
+    # Validate document exists for this user
+    doc_row = await session.execute(
+        select(Document.id).where(Document.user_id == user_id, Document.filename == body.document_name)
+    )
+    if not doc_row.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail=f"Document '{body.document_name}' not found.")
+
+    # Retrieve all chunks from this document
+    try:
+        collection = ingestion_service.get_collection(user_id)
+        results = collection.get(
+            where={"source": body.document_name},
+            include=["documents"]
+        )
+        all_text = "\n\n".join(results["documents"]) if results["documents"] else ""
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="Could not read document chunks.")
+
+    if not all_text.strip():
+        return {"document_name": body.document_name, "events": [], "message": "No content found in this document."}
+
+    # Ask LLM to extract timeline events
+    from langchain_core.messages import HumanMessage
+    import json as json_lib
+
+    llm = llm_provider.get_llm(temperature=0)
+
+    prompt = f"""You are a legal timeline extractor.
+Read the following legal document and extract ALL dates, deadlines, durations, and time-bound obligations.
+
+For each event return a JSON object with:
+- "date": the date or duration as written in the document (e.g. "January 15, 2024", "30 days after signing", "3 years")
+- "label": a short 5-word max label (e.g. "Agreement effective date", "Termination notice period")
+- "detail": one sentence explaining this event
+
+Return ONLY a valid JSON array of these objects. No preamble, no markdown, no explanation.
+If no dates or deadlines are found, return an empty array: []
+
+DOCUMENT:
+{all_text[:6000]}
+"""
+
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        events = json_lib.loads(raw.strip())
+        if not isinstance(events, list):
+            events = []
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="AI service could not extract timeline.")
+
+    return {
+        "document_name": body.document_name,
+        "total_events": len(events),
+        "events": events,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MULTI-DOCUMENT CROSS-REFERENCE (Phase 8)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/cross-reference")
+async def cross_reference(
+    body: CrossRefRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Ask a question across ALL of the user's uploaded documents.
+    Returns synthesized answer with per-document citations.
+    """
+    user_id = current_user["id"]
+    session_id = body.session_id or str(uuid.uuid4())
+
+    # Check user has documents
+    docs_result = await session.execute(
+        select(func.count(Document.id)).where(Document.user_id == user_id)
+    )
+    doc_count = docs_result.scalar() or 0
+    if doc_count == 0:
+        return {
+            "answer": "No documents uploaded yet. Please upload legal documents before using cross-reference search.",
+            "sources": [],
+            "documents_searched": 0,
+            "session_id": session_id,
+        }
+
+    # Retrieve from ALL documents
+    retriever = ingestion_service.get_all_documents_retriever(user_id, k=8)
+    if not retriever:
+        raise HTTPException(status_code=503, detail="Could not access document store.")
+
+    try:
+        chunks = retriever.invoke(body.question)
+    except Exception:
+        chunks = []
+
+    if not chunks:
+        return {
+            "answer": "No relevant content found across your documents for this question.",
+            "sources": [],
+            "documents_searched": doc_count,
+            "session_id": session_id,
+        }
+
+    # Build context grouped by document
+    from collections import defaultdict
+    doc_chunks = defaultdict(list)
+    for chunk in chunks:
+        meta = chunk.metadata or {}
+        source = meta.get("source", "Unknown")
+        doc_chunks[source].append(chunk)
+
+    context_parts = []
+    for doc_name, doc_chunk_list in doc_chunks.items():
+        context_parts.append(f"=== FROM: {doc_name} ===")
+        for c in doc_chunk_list:
+            meta = c.metadata or {}
+            context_parts.append(f"[Chunk {meta.get('chunk_index', '?')}]\n{c.page_content}")
+    context = "\n\n".join(context_parts)
+
+    # Generate synthesized answer
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    llm = llm_provider.get_llm(temperature=0.1)
+
+    system_content = f"""You are a legal document analyst for {config.FIRM_NAME}.
+You have been given content from MULTIPLE legal documents. Answer the question by synthesizing information across all documents.
+
+Rules:
+1. Cite EVERY fact with [Document: filename, Chunk: N]
+2. If different documents say different things, note the differences explicitly
+3. Never fabricate information
+4. Be professional and precise
+
+CONTENT FROM ALL DOCUMENTS:
+{context}
+"""
+
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=system_content),
+            HumanMessage(content=body.question)
+        ])
+        answer = response.content
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="AI service temporarily unavailable.")
+
+    # Build sources list
+    sources = []
+    for chunk in chunks:
+        meta = chunk.metadata or {}
+        sources.append({
+            "document": meta.get("source", "Unknown"),
+            "chunk_index": meta.get("chunk_index", 0),
+            "preview": chunk.page_content[:200],
+        })
+
+    return {
+        "answer": answer,
+        "sources": sources,
+        "documents_searched": doc_count,
+        "documents_with_results": list(doc_chunks.keys()),
+        "session_id": session_id,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  CONTRACT SUMMARIZATION (Phase 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -865,7 +1656,130 @@ async def summarize_document(body: SummarizeRequest, current_user: dict = Depend
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  OBLIGATION TRACKER (Phase 4)
+#  OBLIGATION TRACKER — AI Extraction + CSV Export (Phase 7)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import csv as csv_module
+import io as io_module
+
+@app.post("/api/obligations")
+async def extract_obligations_v2(
+    body: ObligationRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Extract every obligation, responsibility, and deadline from a document,
+    organized by which party must do what.
+    """
+    user_id = current_user["id"]
+
+    doc_row = await session.execute(
+        select(Document.id).where(Document.user_id == user_id, Document.filename == body.document_name)
+    )
+    if not doc_row.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail=f"Document '{body.document_name}' not found.")
+
+    try:
+        collection = ingestion_service.get_collection(user_id)
+        results = collection.get(
+            where={"source": body.document_name},
+            include=["documents"]
+        )
+        all_text = "\n\n".join(results["documents"]) if results["documents"] else ""
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not read document.")
+
+    if not all_text.strip():
+        return {"document_name": body.document_name, "obligations": []}
+
+    from langchain_core.messages import HumanMessage
+    import json as json_lib
+
+    llm = llm_provider.get_llm(temperature=0)
+
+    prompt = f"""You are a legal obligation extractor.
+Read this legal document and extract every obligation, duty, responsibility, and restriction.
+
+For each obligation return a JSON object with:
+- "party": who must do this (e.g. "Receiving Party", "Both Parties", "Disclosing Party")
+- "obligation": what they must do (one clear sentence)
+- "deadline": when it must be done, or "Ongoing" if continuous
+- "consequence": what happens if not done, or "Not specified"
+- "article": the article or section reference if visible (e.g. "Article 2.1")
+
+Return ONLY a valid JSON array. No preamble, no markdown.
+
+DOCUMENT:
+{all_text[:6000]}
+"""
+
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        obligations = json_lib.loads(raw.strip())
+        if not isinstance(obligations, list):
+            obligations = []
+    except Exception:
+        raise HTTPException(status_code=503, detail="AI service could not extract obligations.")
+
+    return {
+        "document_name": body.document_name,
+        "total_obligations": len(obligations),
+        "obligations": obligations,
+    }
+
+
+@app.get("/api/obligations/export")
+async def export_obligations(
+    document_name: str,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Re-runs obligation extraction and returns a downloadable CSV file.
+    Usage: GET /api/obligations/export?document_name=contract.pdf
+    """
+    from fastapi.responses import StreamingResponse as FileStreamingResponse
+
+    req_body = ObligationRequest(document_name=document_name)
+    result = await extract_obligations_v2(req_body, current_user, session)
+
+    obligations = result.get("obligations", [])
+
+    output = io_module.StringIO()
+    writer = csv_module.DictWriter(
+        output,
+        fieldnames=["party", "obligation", "deadline", "consequence", "article"]
+    )
+    writer.writeheader()
+    for ob in obligations:
+        writer.writerow({
+            "party": ob.get("party", ""),
+            "obligation": ob.get("obligation", ""),
+            "deadline": ob.get("deadline", ""),
+            "consequence": ob.get("consequence", ""),
+            "article": ob.get("article", ""),
+        })
+
+    output.seek(0)
+    safe_name = document_name.replace(".pdf", "").replace(".docx", "").replace(".txt", "")
+
+    return FileStreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_obligations.csv"'
+        }
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  OBLIGATION TRACKER (Phase 4) — original
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/obligations/extract")
@@ -1025,16 +1939,78 @@ async def delete_obligation(obligation_id: int, current_user: dict = Depends(get
 
 @app.get("/api/templates")
 async def list_templates(current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(ContractTemplate).order_by(ContractTemplate.name))
+    org_id = current_user.get("org_id")
+    conditions = [ContractTemplate.is_custom == False]
+    if org_id:
+        conditions.append((ContractTemplate.org_id == org_id) & (ContractTemplate.is_custom))
+    from sqlalchemy import or_
+    result = await session.execute(
+        select(ContractTemplate).where(or_(*conditions)).order_by(ContractTemplate.name)
+    )
     rows = result.scalars().all()
     return [
         {
             "id": r.id, "name": r.name, "description": r.description,
             "template_type": r.template_type,
             "clauses": json.loads(r.clauses_json) if r.clauses_json else [],
+            "is_custom": r.is_custom,
+            "org_id": r.org_id,
         }
         for r in rows
     ]
+
+
+@app.post("/api/templates/create")
+async def create_template(body: TemplateCreateRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    org_id = current_user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You must belong to an organization to create custom templates.")
+    template = ContractTemplate(
+        user_id=current_user["id"],
+        org_id=org_id,
+        name=body.name,
+        description=body.description,
+        template_type=body.template_type,
+        clauses_json=json.dumps(body.clauses),
+        is_custom=True,
+    )
+    session.add(template)
+    await session.flush()
+    return {"id": template.id, "message": f"Template '{body.name}' created."}
+
+
+@app.put("/api/templates/{template_id}")
+async def update_template(template_id: int, body: TemplateUpdateRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(ContractTemplate).where(ContractTemplate.id == template_id, ContractTemplate.is_custom, ContractTemplate.user_id == current_user["id"])
+    )
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom template not found.")
+    updates = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.description is not None:
+        updates["description"] = body.description
+    if body.template_type is not None:
+        updates["template_type"] = body.template_type
+    if body.clauses is not None:
+        updates["clauses_json"] = json.dumps(body.clauses)
+    if updates:
+        await session.execute(update(ContractTemplate).where(ContractTemplate.id == template_id).values(**updates))
+    return {"message": f"Template '{template.name}' updated."}
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(template_id: int, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(ContractTemplate).where(ContractTemplate.id == template_id, ContractTemplate.is_custom, ContractTemplate.user_id == current_user["id"])
+    )
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom template not found.")
+    await session.execute(delete(ContractTemplate).where(ContractTemplate.id == template_id))
+    return {"message": f"Template '{template.name}' deleted."}
 
 
 @app.post("/api/templates/match")
@@ -1200,27 +2176,47 @@ async def extract_tables(body: TableExtractRequest, current_user: dict = Depends
 
 @app.post("/api/clauses/save")
 async def save_clause(body: SaveClauseRequest, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    if body.visibility == "org" and not current_user.get("org_id"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Must belong to an organization to share clauses.")
     clause = SavedClause(
         user_id=current_user["id"],
+        org_id=current_user.get("org_id") if body.visibility == "org" else None,
         clause_type=body.clause_type,
         title=body.title or f"{body.clause_type} clause",
         content=body.content,
         source_document=body.source_document,
         notes=body.notes,
+        visibility=body.visibility,
     )
     session.add(clause)
     await session.flush()
-    return {"id": clause.id, "message": "Clause saved to library."}
+    return {"id": clause.id, "visibility": clause.visibility, "message": "Clause saved to library."}
 
 
 @app.get("/api/clauses")
 async def list_clauses(
     clause_type: Optional[str] = Query(None),
     benchmarks_only: bool = Query(False),
+    scope: Optional[str] = Query("personal"),  # personal / org / all
     current_user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    query = select(SavedClause).where(SavedClause.user_id == current_user["id"])
+    from sqlalchemy import or_
+    user_id = current_user["id"]
+    org_id = current_user.get("org_id")
+
+    if scope == "org":
+        if not org_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Must belong to an organization to view firm clauses.")
+        query = select(SavedClause).where(SavedClause.org_id == org_id, SavedClause.visibility == "org")
+    elif scope == "all":
+        conditions = [SavedClause.user_id == user_id]
+        if org_id:
+            conditions.append((SavedClause.org_id == org_id) & (SavedClause.visibility == "org"))
+        query = select(SavedClause).where(or_(*conditions))
+    else:
+        query = select(SavedClause).where(SavedClause.user_id == user_id, SavedClause.visibility == "personal")
+
     if clause_type:
         query = query.where(SavedClause.clause_type == clause_type)
     if benchmarks_only:
@@ -1234,6 +2230,8 @@ async def list_clauses(
             "id": r.id, "clause_type": r.clause_type, "title": r.title,
             "content": r.content, "source_document": r.source_document,
             "notes": r.notes, "is_benchmark": r.is_benchmark,
+            "visibility": r.visibility,
+            "org_id": r.org_id,
             "created_at": str(r.created_at) if r.created_at else None,
         }
         for r in rows
@@ -1247,6 +2245,23 @@ async def delete_clause(clause_id: int, current_user: dict = Depends(get_current
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clause not found.")
     await session.execute(delete(SavedClause).where(SavedClause.id == clause_id))
     return {"message": "Clause deleted."}
+
+
+@app.post("/api/clauses/{clause_id}/share")
+async def share_clause_to_org(clause_id: int, current_user: dict = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    org_id = current_user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Must belong to an organization to share clauses.")
+    result = await session.execute(
+        select(SavedClause).where(SavedClause.id == clause_id, SavedClause.user_id == current_user["id"])
+    )
+    clause = result.scalar_one_or_none()
+    if not clause:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clause not found.")
+    await session.execute(
+        update(SavedClause).where(SavedClause.id == clause_id).values(org_id=org_id, visibility="org")
+    )
+    return {"message": "Clause shared to firm library."}
 
 
 @app.patch("/api/clauses/{clause_id}/benchmark")
@@ -1369,6 +2384,8 @@ class CreateAPIKeyRequest(BaseModel):
     name: str
     expires_in_days: Optional[int] = None
     scopes: Optional[list[str]] = None
+    rate_limit_rpm: int = 60
+    rate_limit_rpd: int = 1000
 
 
 class CreateWebhookRequest(BaseModel):
@@ -1820,6 +2837,8 @@ async def create_org_api_key(
         key_prefix=config.API_KEY_PREFIX,
         name=body.name,
         scopes_json=json.dumps(body.scopes) if body.scopes else None,
+        rate_limit_rpm=body.rate_limit_rpm,
+        rate_limit_rpd=body.rate_limit_rpd,
         expires_at=expires_at,
     )
     session.add(db_key)
@@ -1852,6 +2871,9 @@ async def list_org_api_keys(
             "id": k.id,
             "name": k.name,
             "prefix": k.key_prefix,
+            "usage_count": k.usage_count or 0,
+            "rate_limit_rpm": k.rate_limit_rpm,
+            "rate_limit_rpd": k.rate_limit_rpd,
             "last_used_at": str(k.last_used_at) if k.last_used_at else None,
             "expires_at": str(k.expires_at) if k.expires_at else None,
             "is_active": k.is_active,
@@ -1859,6 +2881,31 @@ async def list_org_api_keys(
         }
         for k in keys
     ]
+
+
+@app.get("/api/org/api-keys/usage")
+async def org_api_key_usage(
+    current_user: dict = Depends(require_org_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    stmt = select(APIKey).where(APIKey.org_id == current_user["org_id"], APIKey.is_active)
+    res = await session.execute(stmt)
+    keys = res.scalars().all()
+    total_usage = sum(k.usage_count or 0 for k in keys)
+    return {
+        "total_keys": len(keys),
+        "total_usage": total_usage,
+        "keys": [
+            {
+                "id": k.id,
+                "name": k.name,
+                "usage_count": k.usage_count or 0,
+                "rate_limit_rpd": k.rate_limit_rpd,
+                "remaining_today": max(0, (k.rate_limit_rpd or 1000) - (k.usage_count or 0)),
+            }
+            for k in keys
+        ],
+    }
 
 
 @app.delete("/api/org/api-keys/{key_id}")
@@ -2183,6 +3230,320 @@ async def upload_branding_logo(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  LANGUAGE DETECTION (Plan 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+from language_utils import detect_language, get_language_name
+
+
+@app.post("/api/language/detect")
+async def detect_language_endpoint(body: dict, current_user: dict = Depends(get_current_user)):
+    text = body.get("text", "")
+    if not text.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No text provided.")
+    lang = detect_language(text)
+    return {"language": lang, "language_name": get_language_name(lang)}
+
+
+@app.get("/api/languages")
+async def list_languages(current_user: dict = Depends(get_current_user)):
+    from language_utils import _LANGUAGE_NAMES
+    return {"enabled": config.ENABLE_MULTILINGUAL, "languages": _LANGUAGE_NAMES}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TENANT ISOLATION (Plan 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+from tenant import check_tenant_isolation
+
+
+@app.get("/api/org/isolation")
+async def tenant_isolation_status(current_user: dict = Depends(require_org_admin)):
+    """Return tenant isolation report for the current org."""
+    return check_tenant_isolation(current_user)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLIENT PORTAL (Plan 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def require_client(current_user: dict = Depends(get_current_user)):
+    """Allow only client-role users."""
+    if current_user.get("role") != "client":
+        raise HTTPException(status_code=403, detail="Client access required.")
+    return current_user
+
+
+@app.get("/api/client/documents")
+async def client_list_documents(
+    current_user: dict = Depends(require_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """List documents shared with the client."""
+    stmt = select(DocShare).where(
+        DocShare.client_user_id == current_user["id"],
+        (DocShare.expires_at.is_(None)) | (DocShare.expires_at > func.now()),
+    )
+    res = await session.execute(stmt)
+    shares = res.scalars().all()
+    doc_ids = [s.document_id for s in shares]
+    if not doc_ids:
+        return []
+    docs_stmt = select(Document).where(Document.id.in_(doc_ids))
+    docs_res = await session.execute(docs_stmt)
+    docs = {d.id: d for d in docs_res.scalars().all()}
+    return [
+        {
+            "id": d.id,
+            "title": docs[d.id].title,
+            "filename": docs[d.id].filename,
+            "created_at": str(docs[d.id].created_at) if docs[d.id].created_at else None,
+            "shared_at": str(next(s.created_at for s in shares if s.document_id == d.id)),
+            "can_ask_questions": next(s.can_ask_questions for s in shares if s.document_id == d.id),
+        }
+        for d in doc_ids if d in docs
+    ]
+
+
+@app.get("/api/client/documents/{doc_id}")
+async def client_get_document(
+    doc_id: int,
+    current_user: dict = Depends(require_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a shared document's details and content."""
+    share_stmt = select(DocShare).where(
+        DocShare.client_user_id == current_user["id"],
+        DocShare.document_id == doc_id,
+    )
+    share_res = await session.execute(share_stmt)
+    share = share_res.scalar_one_or_none()
+    if not share:
+        raise HTTPException(status_code=404, detail="Document not shared with you.")
+    doc_stmt = select(Document).where(Document.id == doc_id)
+    doc_res = await session.execute(doc_stmt)
+    doc = doc_res.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {
+        "id": doc.id,
+        "title": doc.title,
+        "filename": doc.filename,
+        "content_preview": (doc.content or "")[:2000],
+        "can_ask_questions": share.can_ask_questions,
+    }
+
+
+@app.post("/api/org/documents/{doc_id}/share")
+async def share_document_with_client(
+    doc_id: int,
+    body: dict,
+    current_user: dict = Depends(require_org_member),
+    session: AsyncSession = Depends(get_session),
+):
+    """Share a document with a client user (by email or user_id)."""
+    client_email = body.get("email")
+    client_user_id = body.get("client_user_id")
+    can_ask = body.get("can_ask_questions", True)
+    expires_in_days = body.get("expires_in_days")
+
+    if not client_email and not client_user_id:
+        raise HTTPException(status_code=400, detail="Provide email or client_user_id.")
+
+    # Verify document ownership
+    doc_stmt = select(Document).where(
+        Document.id == doc_id,
+        Document.user_id == current_user["id"],
+    )
+    doc_res = await session.execute(doc_stmt)
+    doc = doc_res.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found or not yours.")
+
+    # Find client
+    if client_user_id:
+        client = await session.get(User, client_user_id)
+    else:
+        client_stmt = select(User).where(User.email == client_email, User.role == "client")
+        client_res = await session.execute(client_stmt)
+        client = client_res.scalar_one_or_none()
+
+    if not client:
+        raise HTTPException(status_code=404, detail="Client user not found.")
+
+    expires_at = None
+    if expires_in_days:
+        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+
+    # Create share
+    share = DocShare(
+        document_id=doc_id,
+        client_user_id=client.id,
+        shared_by_user_id=current_user["id"],
+        can_ask_questions=can_ask,
+        expires_at=expires_at,
+    )
+    session.add(share)
+    await session.flush()
+
+    return {"id": share.id, "client_user_id": client.id, "expires_at": str(expires_at) if expires_at else None}
+
+
+@app.get("/api/org/documents/shared")
+async def list_shared_documents(
+    current_user: dict = Depends(require_org_member),
+    session: AsyncSession = Depends(get_session),
+):
+    """List documents the current user has shared with clients."""
+    stmt = select(DocShare).where(DocShare.shared_by_user_id == current_user["id"])
+    res = await session.execute(stmt)
+    shares = res.scalars().all()
+    if not shares:
+        return []
+    doc_ids = list(set(s.document_id for s in shares))
+    client_ids = list(set(s.client_user_id for s in shares))
+
+    docs_stmt = select(Document).where(Document.id.in_(doc_ids))
+    docs_res = await session.execute(docs_stmt)
+    docs = {d.id: d for d in docs_res.scalars().all()}
+
+    clients_stmt = select(User).where(User.id.in_(client_ids))
+    clients_res = await session.execute(clients_stmt)
+    clients = {c.id: c for c in clients_res.scalars().all()}
+
+    return [
+        {
+            "id": s.id,
+            "document_id": s.document_id,
+            "document_title": docs[s.document_id].title if s.document_id in docs else None,
+            "client_email": clients[s.client_user_id].email if s.client_user_id in clients else None,
+            "client_name": clients[s.client_user_id].username if s.client_user_id in clients else None,
+            "can_ask_questions": s.can_ask_questions,
+            "expires_at": str(s.expires_at) if s.expires_at else None,
+            "created_at": str(s.created_at),
+        }
+        for s in shares
+    ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  WEBHOOK / WEBHOOK EVENT HANDLING
+# ══════════════════════════════════════════════════════════════════════════════
+
+from websocket_manager import manager
+from fastapi import WebSocket, WebSocketDisconnect
+
+
+@app.websocket("/ws/notifications")
+async def websocket_notifications(ws: WebSocket):
+    """Real-time notification WebSocket endpoint.
+    Client must send auth token as first message: {"token": "<jwt>"}
+    """
+    await ws.accept()
+    user_data = None
+    try:
+        # Expect first message to be auth
+        data = await ws.receive_json()
+        token = data.get("token", "")
+        from jose import jwt as jose_jwt
+        try:
+            payload = jose_jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+            user_id = payload.get("id")
+            if not user_id:
+                await ws.send_json({"error": "Invalid token"})
+                await ws.close()
+                return
+            user_data = {"id": user_id}
+        except Exception:
+            await ws.send_json({"error": "Invalid token"})
+            await ws.close()
+            return
+
+        await manager.connect(user_id, ws)
+        await ws.send_json({"type": "connected", "message": "Notifications active"})
+
+        # Keep alive / listen for pings
+        while True:
+            try:
+                data = await ws.receive_text()
+                if data == "ping":
+                    await ws.send_text("pong")
+            except WebSocketDisconnect:
+                break
+    except Exception:
+        pass
+    finally:
+        if user_data:
+            manager.disconnect(user_data["id"], ws)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  NOTIFICATIONS (Plan 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/notifications")
+async def list_notifications(
+    unread_only: bool = False,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    stmt = select(Notification).where(Notification.user_id == current_user["id"])
+    if unread_only:
+        stmt = stmt.where(Notification.is_read == False)
+    stmt = stmt.order_by(Notification.created_at.desc()).limit(50)
+    res = await session.execute(stmt)
+    notifications = res.scalars().all()
+    return [
+        {
+            "id": n.id,
+            "title": n.title,
+            "body": n.body,
+            "type": n.notification_type,
+            "resource_type": n.resource_type,
+            "resource_id": n.resource_id,
+            "is_read": n.is_read,
+            "created_at": str(n.created_at),
+        }
+        for n in notifications
+    ]
+
+
+@app.put("/api/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: int,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    stmt = select(Notification).where(
+        Notification.id == notification_id,
+        Notification.user_id == current_user["id"],
+    )
+    res = await session.execute(stmt)
+    notif = res.scalar_one_or_none()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found.")
+    notif.is_read = True
+    await session.flush()
+    return {"status": "read"}
+
+
+@app.put("/api/notifications/read-all")
+async def mark_all_notifications_read(
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    from sqlalchemy import update
+    stmt = (
+        update(Notification)
+        .where(Notification.user_id == current_user["id"], Notification.is_read == False)
+        .values(is_read=True)
+    )
+    await session.execute(stmt)
+    return {"status": "all_read"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  HEALTH CHECK
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2206,7 +3567,7 @@ async def health():
         "billing": "live" if config.BILLING_ENABLED else "demo",
         "llm_provider": config.DEFAULT_LLM_PROVIDER,
         "sentry": bool(config.SENTRY_DSN),
-        "features": ["chat", "clauses", "comparison", "summarization", "obligations", "templates", "tables", "clause-library", "multi-model", "hybrid-search", "ocr"],
+        "features": ["chat", "clauses", "comparison", "summarization", "obligations", "templates", "tables", "clause-library", "multi-model", "hybrid-search", "ocr", "voice", "annotations", "multilingual"],
     }
 
 

@@ -53,10 +53,28 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio httpx
       - run: cp .env.example .env
+      - name: Wait for PostgreSQL
+        run: |
+          DB_READY=false
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432; then
+              echo "PostgreSQL ready after ${i}s"
+              DB_READY=true
+              break
+            fi
+            echo "Waiting for Postgres ($i/30)..."
+            sleep 2
+          done
+          if [ "$DB_READY" != "true" ]; then
+            echo "::error::PostgreSQL did not become ready within 60 seconds"
+            exit 1
+          fi
       - name: Run Database Migrations
         env:
           DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/lexbot_test"
         run: alembic upgrade head
+      - name: List installed packages
+        run: pip list 2>&1 | head -40
       - name: Run Backend Tests
         env:
           DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/lexbot_test"

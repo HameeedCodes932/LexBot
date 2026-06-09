@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Plus, MessageSquare, Download, PanelLeft, Cpu, Filter } from 'lucide-react'
+import { Send, Plus, MessageSquare, Download, PanelLeft, Cpu, Filter, Mic, MicOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
 import MessageBubble from '../components/MessageBubble'
 import ChatHistorySidebar from '../components/ChatHistorySidebar'
 import { MessageSkeleton } from '../components/LoadingSkeleton'
 import { AIDisclaimerChatNotice } from '../components/AIDisclaimer'
-import { sendMessage, getProviders, getDocuments } from '../api'
+import { sendMessage, getProviders, getDocuments, transcribeAudio } from '../api'
 
 function TypingIndicator() {
   return (
@@ -41,6 +41,11 @@ export default function Chat() {
   const [documents, setDocuments] = useState([])
   const [selectedDocs, setSelectedDocs] = useState([])
   const [showDocFilter, setShowDocFilter] = useState(false)
+
+  // Voice recording state (Plan 2)
+  const [recording, setRecording] = useState(false)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
 
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -142,6 +147,47 @@ export default function Chat() {
       e.preventDefault()
       handleSend()
     }
+  }
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioChunksRef.current = []
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      mediaRecorderRef.current = recorder
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        if (blob.size < 1000) return
+        try {
+          const result = await transcribeAudio(blob)
+          if (result.text) {
+            setInput((prev) => (prev ? prev + ' ' + result.text : result.text))
+            toast.success('Voice transcribed')
+          }
+        } catch (err) {
+          toast.error('Voice transcription failed')
+        }
+      }
+
+      recorder.start()
+      setRecording(true)
+      toast.success('Recording... Speak now')
+    } catch {
+      toast.error('Microphone access denied')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    setRecording(false)
   }
 
   const toggleDocFilter = (filename) => {
@@ -327,6 +373,18 @@ export default function Chat() {
               disabled={loading}
               className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400 focus:border-transparent disabled:opacity-50 transition-colors"
             />
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              disabled={loading}
+              className={`px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2 ${
+                recording
+                  ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse'
+                  : 'bg-gray-100 dark:bg-navy-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-navy-600'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={recording ? 'Stop recording' : 'Voice input'}
+            >
+              {recording ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
             <button
               onClick={handleSend}
               disabled={!input.trim() || loading}

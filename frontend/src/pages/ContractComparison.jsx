@@ -20,7 +20,11 @@ export default function ContractComparison() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    getDocuments().then(setDocs).catch(() => {})
+    getDocuments().then((data) => {
+      if (Array.isArray(data)) { setDocs(data) }
+      else if (data?.items) { setDocs(data.items) }
+      else { setDocs([]) }
+    }).catch(() => {})
   }, [])
 
   const sameDoc = docOne && docTwo && docOne === docTwo
@@ -33,7 +37,8 @@ export default function ContractComparison() {
       const data = await compareClauses(docOne, docTwo, clauseType)
       setResult(data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Comparison failed.')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : detail?.message || 'Comparison failed.')
     } finally { setLoading(false) }
   }
 

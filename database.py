@@ -96,6 +96,9 @@ class APIKey(Base):
     key_prefix = Column(String(50), nullable=False)  # e.g., "lxb_"
     name = Column(String(255), nullable=False)
     scopes_json = Column(Text, nullable=True)
+    rate_limit_rpm = Column(Integer, default=60)  # requests per minute
+    rate_limit_rpd = Column(Integer, default=1000)  # requests per day
+    usage_count = Column(Integer, default=0)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
@@ -124,6 +127,42 @@ class WebhookEndpoint(Base):
     )
 
 
+class DocShare(Base):
+    """Share a document with a client (Plan 4 - Client Portal)."""
+    __tablename__ = "doc_shares"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    client_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    shared_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    can_ask_questions = Column(Boolean, default=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_doc_shares_client", "client_user_id", "document_id", unique=True),
+    )
+
+
+class Notification(Base):
+    """In-app notification for real-time delivery (Plan 4)."""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=True)
+    notification_type = Column(String(50), default="info")  # info, warning, error, success
+    resource_type = Column(String(50), nullable=True)
+    resource_id = Column(String(50), nullable=True)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_notifications_user_read", "user_id", "is_read"),
+    )
+
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 class User(Base):
@@ -138,6 +177,10 @@ class User(Base):
     org_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # ── 2FA (Plan 3) ────────────────────────────────────────────────────────────
+    totp_secret = Column(String(255), nullable=True)
+    is_2fa_enabled = Column(Boolean, default=False)
 
     # ── Billing ────────────────────────────────────────────────────────────────
     stripe_customer_id = Column(String(255), nullable=True)
@@ -207,6 +250,8 @@ class Document(Base):
     doc_type = Column(String(100), default="General")
     chunks = Column(Integer, default=0)
     characters = Column(Integer, default=0)
+    is_privileged = Column(Boolean, default=False)
+    privilege_notes = Column(Text, default="")
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -274,14 +319,18 @@ class ContractTemplate(Base):
     __tablename__ = "contract_templates"
 
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    org_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, default="")
-    template_type = Column(String(100), nullable=False)  # NDA/Employment/SaaS/Lease/Vendor
+    template_type = Column(String(100), nullable=False)  # NDA/Employment/SaaS/Lease/Vendor/Custom
     clauses_json = Column(Text, nullable=False)  # JSON: [{type, description, required}]
+    is_custom = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("idx_templates_type", "template_type"),
+        Index("idx_templates_org_id", "org_id"),
     )
 
 
@@ -291,17 +340,40 @@ class SavedClause(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    org_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
     clause_type = Column(String(100), nullable=False)
     title = Column(String(500), default="")
     content = Column(Text, nullable=False)
     source_document = Column(String(500), default="")
     notes = Column(Text, default="")
     is_benchmark = Column(Boolean, default=False)
+    visibility = Column(String(50), default="personal")  # personal / org
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("idx_saved_clauses_user_id", "user_id"),
         Index("idx_saved_clauses_type", "user_id", "clause_type"),
+        Index("idx_clauses_org_id", "org_id"),
+    )
+
+
+# ── Document Annotations (Plan 2) ─────────────────────────────────────────────
+class DocumentAnnotation(Base):
+    __tablename__ = "document_annotations"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    annotation_type = Column(String(50), nullable=False)  # highlight / comment / strikeout / underline
+    page_number = Column(Integer, default=0)
+    selected_text = Column(Text, default="")
+    comment = Column(Text, default="")
+    color = Column(String(50), default="yellow")
+    position_json = Column(Text, nullable=True)  # JSON: {x, y, width, height} relative coords
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_annotations_doc_user", "document_id", "user_id"),
     )
 
 
@@ -323,9 +395,18 @@ class Invoice(Base):
 
 # ── Initialization ─────────────────────────────────────────────────────────────
 async def init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created / verified.")
+    """Initialize DB using Alembic migrations. Falls back to create_all if migration fails."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database migration to head completed.")
+    except Exception as exc:
+        logger.warning("Alembic migration failed (%s), falling back to create_all.", exc)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables created / verified via create_all fallback.")
 
 
 # ── Session dependency ─────────────────────────────────────────────────────────

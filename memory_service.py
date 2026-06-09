@@ -1,23 +1,39 @@
 import logging
+import os
 
 from langchain_core.messages import HumanMessage
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from langchain_chroma import Chroma
 
 import config
 from database import LongTermMemory, Message, Summary, async_session_factory
 from llm_provider import llm_provider
+from ingestion import ingestion_service
 
 logger = logging.getLogger(__name__)
 
 
 class MemoryService:
     def __init__(self):
-        pass  # LLM created on-demand via llm_provider
+        self._memory_collections: dict[str, Chroma] = {}
 
     @property
     def _llm(self):
         return llm_provider.get_memory_llm(temperature=0)
+
+    def _get_memory_collection(self, user_id: int) -> Chroma:
+        """Per-user ChromaDB collection storing long-term memory facts as vectors."""
+        cache_key = f"memory_{user_id}"
+        if cache_key not in self._memory_collections:
+            persist_dir = os.path.join(config.CHROMA_DIR, f"memory_{user_id}")
+            os.makedirs(persist_dir, exist_ok=True)
+            self._memory_collections[cache_key] = Chroma(
+                collection_name=f"memory_{user_id}",
+                embedding_function=ingestion_service.embeddings,
+                persist_directory=persist_dir,
+            )
+        return self._memory_collections[cache_key]
 
     async def loadRecentMessages(
         self, session: AsyncSession, user_id: int, session_id: str
@@ -49,6 +65,33 @@ class MemoryService:
     async def searchLongTermMemory(
         self, session: AsyncSession, user_id: int, query: str
     ) -> str:
+        """
+        UPGRADED: semantic search over long-term memory via ChromaDB.
+        Falls back to recency-based SQLite search if query is empty or fails.
+        """
+        # Fallback: recency-based (original behavior)
+        if not query or not query.strip():
+            result = await session.execute(
+                select(LongTermMemory.memory_text)
+                .where(LongTermMemory.user_id == user_id)
+                .order_by(LongTermMemory.created_at.desc())
+                .limit(config.MAX_LONG_TERM_RESULTS)
+            )
+            rows = result.scalars().all()
+            if not rows:
+                return "No long-term memory found for this user."
+            return "\n".join(rows)
+
+        # Semantic search via ChromaDB
+        try:
+            collection = self._get_memory_collection(user_id)
+            results = collection.similarity_search(query, k=config.MAX_LONG_TERM_RESULTS)
+            if results:
+                return "\n".join(doc.page_content for doc in results)
+        except Exception:
+            pass  # fall through to recency fallback
+
+        # Recency fallback if semantic search fails or returns nothing
         result = await session.execute(
             select(LongTermMemory.memory_text)
             .where(LongTermMemory.user_id == user_id)
@@ -113,6 +156,16 @@ class MemoryService:
                         m = LongTermMemory(user_id=user_id, memory_text=fact_text)
                         session.add(m)
                         await session.commit()
+
+                        # ALSO store in ChromaDB for semantic retrieval
+                        try:
+                            mem_collection = self._get_memory_collection(user_id)
+                            mem_collection.add_texts(
+                                texts=[fact_text],
+                                metadatas=[{"user_id": str(user_id)}]
+                            )
+                        except Exception:
+                            pass  # SQLite save succeeded, semantic index is bonus
                     except Exception:
                         await session.rollback()
         except Exception:
