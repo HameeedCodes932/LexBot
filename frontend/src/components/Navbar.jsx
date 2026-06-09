@@ -5,7 +5,7 @@ import { useTheme } from '../context/ThemeContext'
 import {
   MessageSquare, FileText, Search, Scale, Shield, LogOut, Trash2,
   Menu, X, Home, Moon, Sun, CreditCard, Sparkles, ListChecks,
-  GitCompare, Library, Users, Key, Settings, History,
+  GitCompare, Library, Users, Key, Settings, History, Bot,
 } from 'lucide-react'
 import DeleteDataModal from './DeleteDataModal'
 
@@ -18,6 +18,7 @@ const links = [
   { to: '/template-match', label: 'Template Matching', icon: GitCompare },
   { to: '/obligations', label: 'Obligation Tracker', icon: ListChecks },
   { to: '/clause-library', label: 'Clause Library', icon: Library },
+  { to: '/agent', label: 'Agent', icon: Bot },
   { to: '/billing', label: 'Billing', icon: CreditCard },
 ]
 

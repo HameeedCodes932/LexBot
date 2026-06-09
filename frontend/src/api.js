@@ -389,4 +389,17 @@ export async function shareClauseToOrg(clauseId) {
   return data
 }
 
+// ── Agent ────────────────────────────────────────────────────────────────────
+export async function runAgentCommand(command, context = '', sessionId = null) {
+  const payload = { command, context }
+  if (sessionId) payload.session_id = sessionId
+  const { data } = await api.post('/api/agent', payload)
+  return data
+}
+
+export async function getAgentTools() {
+  const { data } = await api.get('/api/agent/tools')
+  return data
+}
+
 export default api

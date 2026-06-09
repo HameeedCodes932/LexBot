@@ -175,3 +175,11 @@ AI_DISCLAIMER_ENABLED: bool = os.getenv("AI_DISCLAIMER_ENABLED", "true").lower()
 TEMPLATE_TYPES: list[str] = [
     "NDA", "Employment", "SaaS", "Lease", "Vendor", "Consulting", "Partnership",
 ]
+
+# ── Agent (SMTP for email tools) ──────────────────────────────────────────────
+SMTP_EMAIL: str = os.getenv("SMTP_EMAIL", "")
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+
+# ── Agent file sandbox ────────────────────────────────────────────────────────
+AGENT_FILES_DIR: str = os.path.join(BASE_DIR, "data", "agent_files")
+

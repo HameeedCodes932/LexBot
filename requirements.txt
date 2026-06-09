@@ -34,6 +34,10 @@ langdetect
 pyotp
 qrcode[pil]
 
+# ── Agent Tools ─────────────────────────────────────────────
+duckduckgo-search
+ics
+
 # ── Testing ─────────────────────────────────────────────────
 pytest
 pytest-asyncio

@@ -321,6 +321,12 @@ class AnnotationUpdateRequest(BaseModel):
     position_json: Optional[str] = None
 
 
+class AgentRequest(BaseModel):
+    command: str
+    context: Optional[str] = ""
+    session_id: Optional[str] = None
+
+
 # ── Phase 2 constants ──────────────────────────────────────────────────────────
 VALID_CLAUSE_TYPES = [
     "indemnification", "termination", "payment", "liability",
@@ -3541,6 +3547,54 @@ async def mark_all_notifications_read(
     )
     await session.execute(stmt)
     return {"status": "all_read"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  AGENT ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/agent")
+async def run_agent(
+    body: AgentRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        from agent import agent as lexbot_agent
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Agent not available: {str(e)}")
+
+    session_id = body.session_id or str(uuid.uuid4())
+
+    result = await lexbot_agent.run(
+        command=body.command,
+        user_id=current_user["id"],
+        session_id=session_id,
+        context=body.context or "",
+    )
+
+    # Audit logging — uses existing audit_service pattern
+    org_id = current_user.get("org_id")
+    from audit import audit_service
+    await audit_service.log(
+        session=session,
+        org_id=org_id,
+        user_id=current_user["id"],
+        action="agent.command",
+        resource_type="agent",
+        resource_id=result.get("tool_used", "none"),
+        details={"command": body.command[:200], "tool_used": result.get("tool_used"), "session_id": session_id},
+    )
+
+    # Ensure session_id is in the response
+    result["session_id"] = session_id
+    return result
+
+
+@app.get("/api/agent/tools")
+async def list_agent_tools(current_user: dict = Depends(get_current_user)):
+    from agent_tools import TOOL_REGISTRY
+    return {"total_tools": len(TOOL_REGISTRY), "tools": TOOL_REGISTRY}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

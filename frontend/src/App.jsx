@@ -14,6 +14,7 @@ import DocumentSummary from './pages/DocumentSummary'
 import ObligationTracker from './pages/ObligationTracker'
 import TemplateMatch from './pages/TemplateMatch'
 import ClauseLibrary from './pages/ClauseLibrary'
+import Agent from './pages/Agent'
 import AdminDashboard from './pages/AdminDashboard'
 import TeamManagement from './pages/TeamManagement'
 import AuditLogs from './pages/AuditLogs'
@@ -53,6 +54,7 @@ function AppRoutes() {
         <Route path="/obligations" element={<ProtectedRoute><ObligationTracker /></ProtectedRoute>} />
         <Route path="/template-match" element={<ProtectedRoute><TemplateMatch /></ProtectedRoute>} />
         <Route path="/clause-library" element={<ProtectedRoute><ClauseLibrary /></ProtectedRoute>} />
+        <Route path="/agent" element={<ProtectedRoute><Agent /></ProtectedRoute>} />
         <Route path="/org/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
         <Route path="/org/audit" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
         <Route path="/org/keys" element={<ProtectedRoute><APIKeys /></ProtectedRoute>} />
