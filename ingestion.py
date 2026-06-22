@@ -1,13 +1,15 @@
+import json
 import logging
 import os
 from typing import Optional
+
+from langchain_core.documents import Document as LCDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from sqlalchemy import func, select
+from sqlalchemy import func, select, delete as sa_delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
-from database import Document, async_session_factory
+from database import Document, DocumentChunk, async_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -15,61 +17,105 @@ logger = logging.getLogger(__name__)
 class IngestionService:
     def __init__(self):
         self._embeddings = None
-        self._collections: dict[str, Chroma] = {}
 
     @property
     def embeddings(self):
         if self._embeddings is None:
-            from langchain_community.embeddings import HuggingFaceBgeEmbeddings
-            self._embeddings = HuggingFaceBgeEmbeddings(
+            from langchain_huggingface import HuggingFaceEmbeddings
+            self._embeddings = HuggingFaceEmbeddings(
                 model_name=config.EMBEDDING_MODEL_NAME,
                 model_kwargs={"device": "cpu"},
                 encode_kwargs={"normalize_embeddings": True},
             )
         return self._embeddings
 
-    def get_collection(self, user_id: int) -> Chroma:
-        cache_key = f"user_{user_id}"
-        if cache_key not in self._collections:
-            persist_dir = os.path.join(config.CHROMA_DIR, f"user_{user_id}")
-            os.makedirs(persist_dir, exist_ok=True)
-            self._collections[cache_key] = Chroma(
-                collection_name=f"user_{user_id}",
-                embedding_function=self.embeddings,
-                persist_directory=persist_dir,
+    # ── Document chunk storage ──────────────────────────────────────────────────
+
+    async def _store_chunks(
+        self, session: AsyncSession, user_id: int, filename: str, chunks: list[str],
+        metadatas: list[dict], org_id: Optional[int] = None,
+    ) -> None:
+        embeddings_list = self.embeddings.embed_documents(chunks)
+        for i, (chunk, emb) in enumerate(zip(chunks, embeddings_list)):
+            doc_chunk = DocumentChunk(
+                user_id=user_id,
+                org_id=org_id,
+                chunk_index=i,
+                content=chunk,
+                embedding=emb,
+                source=filename,
+                metadata_json=json.dumps(metadatas[i]) if metadatas and i < len(metadatas) else None,
             )
-        return self._collections[cache_key]
+            session.add(doc_chunk)
 
-    def get_org_collection(self, org_id: int) -> Chroma:
-        cache_key = f"org_{org_id}"
-        if cache_key not in self._collections:
-            persist_dir = os.path.join(config.CHROMA_DIR, f"org_{org_id}")
-            os.makedirs(persist_dir, exist_ok=True)
-            self._collections[cache_key] = Chroma(
-                collection_name=f"org_{org_id}",
-                embedding_function=self.embeddings,
-                persist_directory=persist_dir,
-            )
-        return self._collections[cache_key]
+    async def _delete_chunks_by_source(self, session: AsyncSession, filename: str, user_id: int, org_id: Optional[int] = None) -> None:
+        stmt = sa_delete(DocumentChunk).where(
+            DocumentChunk.source == filename,
+            DocumentChunk.user_id == user_id,
+        )
+        if org_id:
+            stmt = stmt.where(DocumentChunk.org_id == org_id)
+        await session.execute(stmt)
 
-    def get_retriever(self, user_id: int, k: int = config.RETRIEVAL_K):
-        try:
-            collection = self.get_collection(user_id)
-            return collection.as_retriever(search_kwargs={"k": k})
-        except Exception:
-            return None
+    async def search_similar(
+        self, query: str, user_id: int, k: int = config.RETRIEVAL_K,
+        org_id: Optional[int] = None, document_filter: Optional[list[str]] = None,
+    ) -> list[LCDocument]:
+        query_embedding = self.embeddings.embed_query(query)
+        async with async_session_factory() as session:
+            try:
+                stmt = (
+                    select(DocumentChunk)
+                    .order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
+                    .limit(k)
+                )
+                cond = (DocumentChunk.user_id == user_id)
+                if org_id:
+                    cond = or_(cond, DocumentChunk.org_id == org_id)
+                if document_filter:
+                    if len(document_filter) == 1:
+                        cond = cond & (DocumentChunk.source == document_filter[0])
+                    else:
+                        cond = cond & (DocumentChunk.source.in_(document_filter))
+                stmt = stmt.where(cond)
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+                return [
+                    LCDocument(
+                        page_content=row.content,
+                        metadata=json.loads(row.metadata_json) if row.metadata_json else {"source": row.source, "chunk_index": row.chunk_index},
+                    )
+                    for row in rows
+                ]
+            except Exception as exc:
+                logger.warning("pgvector similarity search failed: %s", exc)
+                return []
 
-    def get_all_documents_retriever(self, user_id: int, k: int = 8):
-        """
-        Returns a retriever that searches across ALL of this user's documents.
-        Searches the user's single ChromaDB collection which contains all their docs.
-        k is higher than single-doc retrieval to cast a wider net.
-        """
-        try:
-            collection = self.get_collection(user_id)
-            return collection.as_retriever(search_kwargs={"k": k})
-        except Exception:
-            return None
+    async def get_chunks_by_source(
+        self, session: AsyncSession, user_id: int, source: str, org_id: Optional[int] = None,
+    ) -> list[DocumentChunk]:
+        stmt = (
+            select(DocumentChunk)
+            .where(DocumentChunk.source == source, DocumentChunk.user_id == user_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+        if org_id:
+            stmt = stmt.where(or_(DocumentChunk.org_id == org_id, DocumentChunk.user_id == user_id))
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all_chunks(
+        self, session: AsyncSession, user_id: int, org_id: Optional[int] = None,
+    ) -> list[DocumentChunk]:
+        stmt = select(DocumentChunk).where(DocumentChunk.user_id == user_id).order_by(DocumentChunk.chunk_index)
+        if org_id:
+            stmt = select(DocumentChunk).where(
+                or_(DocumentChunk.user_id == user_id, DocumentChunk.org_id == org_id)
+            ).order_by(DocumentChunk.chunk_index)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    # ── Ingestion ───────────────────────────────────────────────────────────────
 
     async def ingest_text(
         self, text: str, filename: str, user_id: int, org_id: Optional[int] = None, visibility: str = "personal"
@@ -95,15 +141,10 @@ class IngestionService:
             for i in range(len(chunks))
         ]
 
-        if visibility == "org" and org_id:
-            collection = self.get_org_collection(org_id)
-        else:
-            collection = self.get_collection(user_id)
-            
-        collection.add_texts(texts=chunks, metadatas=metadatas)
-
         async with async_session_factory() as session:
             try:
+                await self._store_chunks(session, user_id, filename, chunks, metadatas, org_id=org_id if visibility == "org" else None)
+
                 doc = Document(
                     user_id=user_id,
                     org_id=org_id if visibility == "org" else None,
@@ -134,8 +175,6 @@ class IngestionService:
     async def check_document_exists(
         self, session: AsyncSession, user_id: int, filename: str, org_id: Optional[int] = None
     ) -> bool:
-        # Check personal or shared documents in org
-        from sqlalchemy import or_
         cond = (Document.user_id == user_id) & (Document.filename == filename)
         if org_id:
             cond = or_(
@@ -152,11 +191,9 @@ class IngestionService:
         page: int = 1, page_size: int = config.DEFAULT_PAGE_SIZE,
     ) -> dict:
         offset = (page - 1) * page_size
-        
-        # Build filter condition
+
         cond = (Document.user_id == user_id)
         if org_id:
-            from sqlalchemy import or_
             cond = or_(Document.user_id == user_id, (Document.org_id == org_id) & (Document.visibility == "org"))
 
         total = await session.scalar(
@@ -206,31 +243,21 @@ class IngestionService:
                 if doc is None:
                     return False
 
-                # Permission check
                 is_owner = (doc.user_id == user_id)
                 is_shared_org_doc = (doc.visibility == "org" and doc.org_id == org_id)
-                
+
                 if not (is_owner or (is_shared_org_doc and is_org_admin)):
                     return False
 
                 filename = doc.filename
-                visibility = doc.visibility
-                doc_org_id = doc.org_id
-                doc_user_id = doc.user_id
-                
+
+                await self._delete_chunks_by_source(session, filename, doc.user_id, doc.org_id)
                 await session.delete(doc)
                 await session.commit()
 
-                if visibility == "org" and doc_org_id:
-                    collection = self.get_org_collection(doc_org_id)
-                else:
-                    collection = self.get_collection(doc_user_id)
-                    
-                collection._collection.delete(where={"source": filename})
-
                 logger.info(
-                    "Deleted document id=%d filename='%s' (visibility: %s) for user %d",
-                    document_id, filename, visibility, user_id,
+                    "Deleted document id=%d filename='%s' for user %d",
+                    document_id, filename, user_id,
                 )
                 return True
             except Exception:
@@ -247,7 +274,6 @@ class IngestionService:
         if doc is None:
             return None
 
-        # Check permissions: owner or shared org member
         is_owner = (doc.user_id == user_id)
         is_shared = (doc.visibility == "org" and doc.org_id == org_id)
 
@@ -264,81 +290,77 @@ class IngestionService:
         }
 
     async def get_document_text(self, document_id: int, user_id: int) -> Optional[str]:
-        """Retrieve the full text of a document from ChromaDB."""
         async with async_session_factory() as session:
             doc = await session.execute(select(Document).where(Document.id == document_id))
             doc = doc.scalar_one_or_none()
             if not doc:
                 return None
-            filename = doc.filename
-            org_id = doc.org_id
-            if doc.visibility == "org" and org_id:
-                collection = self.get_org_collection(org_id)
-            else:
-                collection = self.get_collection(user_id)
-            try:
-                db_results = collection._collection.get(where={"source": filename})
-                documents = db_results.get("documents", [])
-                metadatas = db_results.get("metadatas", [])
-                if not documents:
-                    return None
-                sorted_pairs = sorted(
-                    zip(documents, metadatas),
-                    key=lambda x: int(x[1].get("chunk_index", 0)),
-                )
-                return "\n\n".join(pair[0] for pair in sorted_pairs)
-            except Exception:
+            org_id = doc.org_id if doc.visibility == "org" else None
+            chunks = await self.get_chunks_by_source(session, user_id, doc.filename, org_id)
+            if not chunks:
                 return None
+            return "\n\n".join(c.content for c in chunks)
 
     async def share_document_to_org(self, user_id: int, document_id: int, org_id: int) -> bool:
         async with async_session_factory() as session:
             try:
-                # 1. Fetch document
                 result = await session.execute(
                     select(Document).where(Document.id == document_id, Document.user_id == user_id)
                 )
                 doc = result.scalar_one_or_none()
                 if not doc or doc.visibility == "org":
                     return False
-                
+
                 filename = doc.filename
-                
-                # 2. Retrieve texts & metadatas from user's Chroma collection
-                user_coll = self.get_collection(user_id)
-                db_results = user_coll._collection.get(where={"source": filename})
-                
-                documents = db_results.get("documents", [])
-                metadatas = db_results.get("metadatas", [])
-                
-                if not documents:
-                    logger.warning(f"No vector chunks found in user_{user_id} collection for doc: {filename}")
+
+                chunks = await self.get_chunks_by_source(session, user_id, filename)
+                if not chunks:
+                    logger.warning(f"No chunks found for doc: {filename}")
                     return False
-                
-                # 3. Add to org collection
-                org_coll = self.get_org_collection(org_id)
-                # Update metadatas with org_id
-                for meta in metadatas:
-                    meta["org_id"] = str(org_id)
-                    
-                org_coll.add_texts(texts=documents, metadatas=metadatas)
-                
-                # 4. Remove from user collection
-                user_coll._collection.delete(where={"source": filename})
-                
-                # 5. Update DB
+
+                for chunk in chunks:
+                    chunk.org_id = org_id
+                    session.add(chunk)
+
                 doc.org_id = org_id
                 doc.visibility = "org"
                 doc.shared_by = user_id
-                
                 session.add(doc)
                 await session.commit()
-                
+
                 logger.info(f"Shared document {document_id} ({filename}) to org {org_id}")
                 return True
             except Exception as exc:
                 await session.rollback()
                 logger.error(f"Error sharing document to org: {exc}")
                 raise
+
+    # ── Startup rebuild ─────────────────────────────────────────────────────────
+
+    async def rebuild_on_startup(self) -> None:
+        """Rebuild chunk embeddings from stored chunk content if missing."""
+        async with async_session_factory() as session:
+            try:
+                result = await session.execute(
+                    select(DocumentChunk).where(DocumentChunk.embedding == None).limit(1)
+                )
+                missing = result.scalar_one_or_none()
+                if not missing:
+                    return
+
+                result = await session.execute(
+                    select(DocumentChunk).where(DocumentChunk.embedding == None)
+                )
+                chunks = result.scalars().all()
+                texts = [c.content for c in chunks]
+                embeddings_list = self.embeddings.embed_documents(texts)
+                for chunk, emb in zip(chunks, embeddings_list):
+                    chunk.embedding = emb
+                await session.commit()
+                logger.info("Rebuilt embeddings for %d chunks on startup", len(chunks))
+            except Exception as exc:
+                await session.rollback()
+                logger.warning("Startup rebuild skipped: %s", exc)
 
 
 ingestion_service = IngestionService()

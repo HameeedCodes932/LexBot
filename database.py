@@ -1,6 +1,8 @@
+import json
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func, Index,
 )
@@ -178,6 +180,10 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # ── Profile ─────────────────────────────────────────────────────────────────
+    phone_number = Column(String(50), default="")
+    avatar_url = Column(String(500), nullable=True)
+
     # ── 2FA (Plan 3) ────────────────────────────────────────────────────────────
     totp_secret = Column(String(255), nullable=True)
     is_2fa_enabled = Column(Boolean, default=False)
@@ -258,6 +264,28 @@ class Document(Base):
         Index("idx_documents_user_id", "user_id"),
         Index("idx_documents_user_filename", "user_id", "filename"),
         Index("idx_documents_org_id", "org_id"),
+    )
+
+
+# ── Document Chunks (pgvector) ────────────────────────────────────────────────
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    org_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(384), nullable=True)
+    source = Column(String(500), nullable=False)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_chunks_user_id", "user_id"),
+        Index("idx_chunks_org_id", "org_id"),
+        Index("idx_chunks_source", "source"),
     )
 
 

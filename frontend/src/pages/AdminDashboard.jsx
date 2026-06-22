@@ -28,7 +28,7 @@ export default function AdminDashboard() {
     Promise.all([getAdminAnalytics(), getAdminUsers()])
       .then(([a, u]) => {
         setAnalytics(a)
-        setUsers(u)
+        setUsers(Array.isArray(u) ? u : (u?.items || []))
       })
       .catch(console.error)
       .finally(() => setLoading(false))

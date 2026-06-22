@@ -18,6 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
+from langchain_core.documents import Document as LCDocument
 
 import config
 from datetime import datetime, timedelta, timezone
@@ -155,7 +156,9 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Sentry initialized.")
     await init_db()
+    # Preload embedding model and rebuild missing embeddings
     _ = ingestion_service.embeddings
+    await ingestion_service.rebuild_on_startup()
     # Seed contract templates
     await _seed_templates()
     
@@ -386,6 +389,86 @@ async def me(current_user: dict = Depends(get_current_user)):
     return {k: v for k, v in current_user.items() if k != "hashed_password"}
 
 
+class UpdateProfileRequest(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    firm_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+@app.patch("/api/auth/me")
+async def update_profile(
+    body: UpdateProfileRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    user_id = current_user["id"]
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    updates = {}
+    if body.username is not None:
+        existing = await session.execute(select(User).where(User.username == body.username, User.id != user_id))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Username already taken")
+        user.username = body.username
+        updates["username"] = body.username
+    if body.email is not None:
+        existing = await session.execute(select(User).where(User.email == body.email, User.id != user_id))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Email already in use")
+        user.email = body.email
+        updates["email"] = body.email
+    if body.firm_name is not None:
+        user.firm_name = body.firm_name
+        updates["firm_name"] = body.firm_name
+    if body.phone_number is not None:
+        user.phone_number = body.phone_number
+        updates["phone_number"] = body.phone_number
+    if body.avatar_url is not None:
+        user.avatar_url = body.avatar_url
+        updates["avatar_url"] = body.avatar_url
+
+    session.add(user)
+    await session.flush()
+
+    logger.info(f"Profile updated for user {user_id}: {updates}")
+    return {k: v for k, v in user.__dict__.items() if k != "hashed_password" and not k.startswith("_")}
+
+
+@app.post("/api/auth/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    user_id = current_user["id"]
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    avatar_dir = os.path.join(config.BASE_DIR, "static", "avatars")
+    os.makedirs(avatar_dir, exist_ok=True)
+
+    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "png"
+    filename = f"user_{user_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = os.path.join(avatar_dir, filename)
+
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    avatar_url = f"/static/avatars/{filename}"
+    user.avatar_url = avatar_url
+    session.add(user)
+    await session.flush()
+
+    logger.info(f"Avatar uploaded for user {user_id}: {avatar_url}")
+    return {"avatar_url": avatar_url}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  2FA ENDPOINTS (Plan 3)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -612,6 +695,40 @@ async def transcribe_voice(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Speech-to-text service is temporarily unavailable.")
 
 
+class SpeakRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/voice/speak")
+async def speak_text(
+    body: SpeakRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Convert text to speech using gTTS and return MP3 audio."""
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No text provided.")
+
+    # Truncate to avoid gTTS timeouts on very long responses
+    if len(text) > 3000:
+        text = text[:3000]
+
+    try:
+        from gtts import gTTS
+        tts = gTTS(text=text, lang="en")
+        audio_buffer = io.BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        return StreamingResponse(
+            audio_buffer,
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=speech.mp3"},
+        )
+    except Exception as exc:
+        logger.error("Text-to-speech failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Text-to-speech service is temporarily unavailable.")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  UPLOAD / DOCUMENTS ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -702,6 +819,14 @@ async def upload_document(
     result = await ingestion_service.ingest_text(
         text=text, filename=file.filename, user_id=current_user["id"], org_id=org_id, visibility=visibility
     )
+
+    # Store original file in Supabase Storage (optional)
+    try:
+        from storage_service import storage_service
+        file_path = f"users/{current_user['id']}/{file.filename}"
+        storage_service.upload_file(contents, file_path, content_type=file.content_type or "application/octet-stream")
+    except Exception:
+        pass
 
     # Invalidate BM25 cache for user/org
     search_engine.invalidate_bm25_cache(current_user["id"], org_id)
@@ -1272,9 +1397,9 @@ async def extract_clauses(
         if not doc_row.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document '{body.document_name}' not found.")
 
-        collection = ingestion_service.get_collection(user_id)
         query_text = CLAUSE_QUERIES.get(body.clause_type, body.clause_type)
-        chunks = rag_chain._search_document(collection, query_text, body.document_name, k=20)
+        org_id_val = current_user.get("org_id")
+        chunks = await rag_chain._search_document(query_text, user_id, body.document_name, k=20, org_id=org_id_val)
 
         fu = FeatureUsage(user_id=user_id, feature_name="extract-clauses", clause_type=body.clause_type)
         session.add(fu)
@@ -1347,10 +1472,10 @@ async def compare_clauses(
         if missing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document(s) not found: {', '.join(missing)}.")
 
-        collection = ingestion_service.get_collection(user_id)
         query_text = CLAUSE_QUERIES.get(body.clause_type, body.clause_type)
-        chunks_one = rag_chain._search_document(collection, query_text, body.document_one, k=3)
-        chunks_two = rag_chain._search_document(collection, query_text, body.document_two, k=3)
+        org_id_val = current_user.get("org_id")
+        chunks_one = await rag_chain._search_document(query_text, user_id, body.document_one, k=3, org_id=org_id_val)
+        chunks_two = await rag_chain._search_document(query_text, user_id, body.document_two, k=3, org_id=org_id_val)
 
         if not chunks_one:
             return {"document_one": body.document_one, "document_two": body.document_two, "clause_type": body.clause_type, "comparison": None, "sources_document_one": [], "sources_document_two": [d.metadata.get("chunk_index", 0) for d in chunks_two] if chunks_two else [], "message": f"No {body.clause_type} clauses found in '{body.document_one}'."}
@@ -1418,12 +1543,8 @@ async def build_timeline(
 
     # Retrieve all chunks from this document
     try:
-        collection = ingestion_service.get_collection(user_id)
-        results = collection.get(
-            where={"source": body.document_name},
-            include=["documents"]
-        )
-        all_text = "\n\n".join(results["documents"]) if results["documents"] else ""
+        chunks = await ingestion_service.get_chunks_by_source(session, user_id, body.document_name)
+        all_text = "\n\n".join(c.content for c in chunks) if chunks else ""
     except Exception as e:
         raise HTTPException(status_code=503, detail="Could not read document chunks.")
 
@@ -1502,12 +1623,8 @@ async def cross_reference(
         }
 
     # Retrieve from ALL documents
-    retriever = ingestion_service.get_all_documents_retriever(user_id, k=8)
-    if not retriever:
-        raise HTTPException(status_code=503, detail="Could not access document store.")
-
     try:
-        chunks = retriever.invoke(body.question)
+        chunks = await ingestion_service.search_similar(body.question, user_id, k=8, org_id=current_user.get("org_id"))
     except Exception:
         chunks = []
 
@@ -1602,8 +1719,12 @@ async def summarize_document(body: SummarizeRequest, current_user: dict = Depend
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document '{body.document_name}' not found.")
 
         # Get all chunks for this document
-        collection = ingestion_service.get_collection(user_id)
-        all_chunks = collection.similarity_search("", k=200, filter={"source": body.document_name})
+        all_chunks = await ingestion_service.get_chunks_by_source(session, user_id, body.document_name)
+        # Convert pgvector rows to LCDocument objects for compatibility
+        all_chunks = [
+            LCDocument(page_content=c.content, metadata={"source": c.source, "chunk_index": c.chunk_index})
+            for c in all_chunks
+        ]
 
         if not all_chunks:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No document content found in the index.")
@@ -1687,12 +1808,8 @@ async def extract_obligations_v2(
         raise HTTPException(status_code=404, detail=f"Document '{body.document_name}' not found.")
 
     try:
-        collection = ingestion_service.get_collection(user_id)
-        results = collection.get(
-            where={"source": body.document_name},
-            include=["documents"]
-        )
-        all_text = "\n\n".join(results["documents"]) if results["documents"] else ""
+        chunks = await ingestion_service.get_chunks_by_source(session, user_id, body.document_name)
+        all_text = "\n\n".join(c.content for c in chunks) if chunks else ""
     except Exception:
         raise HTTPException(status_code=503, detail="Could not read document.")
 
@@ -1798,7 +1915,7 @@ async def extract_obligations(body: ObligationExtractRequest, current_user: dict
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document '{body.document_name}' not found.")
 
         # Search for obligation-related content
-        collection = ingestion_service.get_collection(user_id)
+        org_id_val = current_user.get("org_id")
         obligation_queries = [
             "obligations duties responsibilities shall must required",
             "deadlines dates timeline due by within days",
@@ -1808,7 +1925,7 @@ async def extract_obligations(body: ObligationExtractRequest, current_user: dict
 
         all_chunks = []
         for q in obligation_queries:
-            chunks = rag_chain._search_document(collection, q, body.document_name, k=5)
+            chunks = await rag_chain._search_document(q, user_id, body.document_name, k=5, org_id=org_id_val)
             all_chunks.extend(chunks)
 
         # Deduplicate
@@ -2040,7 +2157,7 @@ async def match_template(body: TemplateMatchRequest, current_user: dict = Depend
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Template has no clauses defined.")
 
         # Check each expected clause type
-        collection = ingestion_service.get_collection(user_id)
+        org_id_val = current_user.get("org_id")
         clause_results = []
         found_count = 0
 
@@ -2049,7 +2166,7 @@ async def match_template(body: TemplateMatchRequest, current_user: dict = Depend
         for clause in expected_clauses:
             ct = clause["type"]
             query_text = CLAUSE_QUERIES.get(ct, ct)
-            chunks = rag_chain._search_document(collection, query_text, body.document_name, k=3)
+            chunks = await rag_chain._search_document(query_text, user_id, body.document_name, k=3, org_id=org_id_val)
 
             found = False
             summary = ""
@@ -2116,7 +2233,7 @@ async def extract_tables(body: TableExtractRequest, current_user: dict = Depends
         if not doc_row.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document '{body.document_name}' not found.")
 
-        collection = ingestion_service.get_collection(user_id)
+        org_id_val = current_user.get("org_id")
         table_queries = [
             "table schedule matrix list amount fee percentage",
             "payment schedule rates pricing tier",
@@ -2126,7 +2243,7 @@ async def extract_tables(body: TableExtractRequest, current_user: dict = Depends
         all_chunks = []
         seen = set()
         for q in table_queries:
-            chunks = rag_chain._search_document(collection, q, body.document_name, k=5)
+            chunks = await rag_chain._search_document(q, user_id, body.document_name, k=5, org_id=org_id_val)
             for c in chunks:
                 key = c.page_content[:100]
                 if key not in seen:

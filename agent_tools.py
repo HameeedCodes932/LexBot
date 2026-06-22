@@ -163,12 +163,21 @@ def list_directory(directory_path: str = "", extension_filter: str = "") -> dict
         return {"success": False, "error": str(e)}
 
 
+def _ddg_search(query: str, max_results: int) -> list:
+    from duckduckgo_search import DDGS
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
+    with DDGS(headers={"User-Agent": ua}) as ddgs:
+        results = list(ddgs.text(query, max_results=max_results))
+        if results:
+            return results
+        results = list(ddgs._text_bing(query, max_results=max_results))
+        return results
+
+
 def web_search(query: str, max_results: int = 5) -> dict:
-    """Search the web using DuckDuckGo."""
+    """Search the web using DuckDuckGo (falls back to Bing backend)."""
     try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
+        results = _ddg_search(query, max_results)
         formatted = [
             {
                 "title": r.get("title", ""),
@@ -210,18 +219,15 @@ def create_reminder(title: str, date: str, description: str = "", output_path: s
 
 
 async def summarize_document(document_name: str, user_id: int) -> dict:
-    """Summarize an uploaded LexBot document from ChromaDB."""
+    """Summarize an uploaded LexBot document from pgvector."""
     try:
         from ingestion import ingestion_service
-        collection = ingestion_service.get_collection(user_id)
-        # Use the internal chromadb collection, matching the existing codebase pattern
-        results = collection._collection.get(
-            where={"source": document_name},
-        )
-        documents = results.get("documents", [])
-        all_text = "\n\n".join(documents) if documents else ""
-        if not all_text.strip():
-            return {"success": False, "error": f"No content found for '{document_name}'. Make sure the file is uploaded first."}
+        from database import async_session_factory
+        async with async_session_factory() as session:
+            chunks = await ingestion_service.get_chunks_by_source(session, user_id, document_name)
+            all_text = "\n\n".join(c.content for c in chunks) if chunks else ""
+            if not all_text.strip():
+                return {"success": False, "error": f"No content found for '{document_name}'. Make sure the file is uploaded first."}
         from langchain_groq import ChatGroq
         from langchain_core.messages import HumanMessage
         llm = ChatGroq(api_key=config.GROQ_API_KEY, model=config.GROQ_MEMORY_MODEL, temperature=0)

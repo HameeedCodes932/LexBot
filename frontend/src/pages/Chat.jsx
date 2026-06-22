@@ -6,7 +6,7 @@ import MessageBubble from '../components/MessageBubble'
 import ChatHistorySidebar from '../components/ChatHistorySidebar'
 import { MessageSkeleton } from '../components/LoadingSkeleton'
 import { AIDisclaimerChatNotice } from '../components/AIDisclaimer'
-import { sendMessage, getProviders, getDocuments, transcribeAudio } from '../api'
+import { sendMessage, getProviders, getDocuments, transcribeAudio, runAgentCommand } from '../api'
 
 function TypingIndicator() {
   return (
@@ -42,10 +42,15 @@ export default function Chat() {
   const [selectedDocs, setSelectedDocs] = useState([])
   const [showDocFilter, setShowDocFilter] = useState(false)
 
-  // Voice recording state (Plan 2)
+  // Voice recording state
   const [recording, setRecording] = useState(false)
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
+  const recognitionRef = useRef(null)
+  const finalTranscriptRef = useRef('')
+
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition
+  const hasSpeechRecognition = !!SpeechRecognitionAPI
 
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -150,40 +155,88 @@ export default function Chat() {
   }
 
   const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      audioChunksRef.current = []
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-      mediaRecorderRef.current = recorder
+    if (hasSpeechRecognition) {
+      const recognition = new SpeechRecognitionAPI()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+      recognitionRef.current = recognition
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data)
-      }
+      finalTranscriptRef.current = ''
 
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        if (blob.size < 1000) return
-        try {
-          const result = await transcribeAudio(blob)
-          if (result.text) {
-            setInput((prev) => (prev ? prev + ' ' + result.text : result.text))
-            toast.success('Voice transcribed')
+      recognition.onresult = (event) => {
+        let final = ''
+        let interim = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          if (result.isFinal) {
+            final += result[0].transcript
+          } else {
+            interim += result[0].transcript
           }
-        } catch (err) {
-          toast.error('Voice transcription failed')
         }
+        finalTranscriptRef.current += final
+        setInput(finalTranscriptRef.current + interim)
       }
 
-      recorder.start()
+      recognition.onerror = () => {
+        setRecording(false)
+        toast.error('Speech recognition error')
+      }
+
+      recognition.onend = () => {
+        setRecording(false)
+        const text = finalTranscriptRef.current.trim()
+        if (text) {
+          setInput((prev) => (prev ? prev + ' ' + text : text))
+          toast.success('Voice transcribed')
+        }
+        finalTranscriptRef.current = ''
+      }
+
+      recognition.start()
       setRecording(true)
-      toast.success('Recording... Speak now')
-    } catch {
-      toast.error('Microphone access denied')
+    } else {
+      // Fallback: MediaRecorder + server-side transcription
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        audioChunksRef.current = []
+        const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+        mediaRecorderRef.current = recorder
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data)
+        }
+
+        recorder.onstop = async () => {
+          stream.getTracks().forEach((t) => t.stop())
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+          if (blob.size < 1000) return
+          try {
+            const result = await transcribeAudio(blob)
+            if (result.text) {
+              setInput((prev) => (prev ? prev + ' ' + result.text : result.text))
+              toast.success('Voice transcribed')
+            }
+          } catch {
+            toast.error('Voice transcription failed')
+          }
+          setRecording(false)
+        }
+
+        recorder.start()
+        setRecording(true)
+      } catch {
+        toast.error('Microphone access denied')
+      }
     }
   }
 
   const stopRecording = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+      recognitionRef.current = null
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
     }
@@ -364,19 +417,28 @@ export default function Chat() {
         {/* Input */}
         <div className="border-t border-gray-200 dark:border-navy-700 bg-white dark:bg-navy-800 px-4 py-4">
           <div className="flex gap-2 max-w-4xl mx-auto">
-            <input
+            <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value)
+                e.target.style.height = 'auto'
+                e.target.style.height = e.target.scrollHeight + 'px'
+              }}
               onKeyDown={handleKeyDown}
-              placeholder="Type your question... (⌘K to focus)"
+              onInput={(e) => {
+                e.target.style.height = 'auto'
+                e.target.style.height = e.target.scrollHeight + 'px'
+              }}
+              placeholder={recording ? 'Listening... Speak now' : "Type your question... (⌘K to focus)"}
               disabled={loading}
-              className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400 focus:border-transparent disabled:opacity-50 transition-colors"
+              rows={1}
+              className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400 focus:border-transparent disabled:opacity-50 transition-colors resize-none overflow-y-auto max-h-32"
             />
             <button
               onClick={recording ? stopRecording : startRecording}
               disabled={loading}
-              className={`px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2 ${
+              className={`px-3 py-2.5 rounded-lg transition-colors flex items-center gap-1.5 ${
                 recording
                   ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse'
                   : 'bg-gray-100 dark:bg-navy-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-navy-600'

@@ -56,12 +56,12 @@ class RAGChain:
             return question
 
     # ── 2. Chunk retrieval (hybrid search) ─────────────────────────────────────
-    def retrieveChunks(
+    async def retrieveChunks(
         self, question: str, user_id: int, org_id: Optional[int] = None,
         document_filter: Optional[list[str]] = None,
     ) -> tuple[list, dict]:
         """Retrieve chunks using hybrid search engine. Returns (docs, search_metadata)."""
-        return search_engine.search(
+        return await search_engine.search(
             query=question,
             user_id=user_id,
             org_id=org_id,
@@ -70,12 +70,9 @@ class RAGChain:
         )
 
     # ── 2b. Filtered document search ───────────────────────────────────────────
-    def _search_document(self, collection, query: str, document_name: str, k: int) -> list:
-        """Search within a specific document (backward-compatible wrapper)."""
-        try:
-            return collection.similarity_search(query, k=k, filter={"source": document_name})
-        except Exception:
-            return []
+    async def _search_document(self, query: str, user_id: int, document_name: str, k: int, org_id: Optional[int] = None) -> list:
+        """Search within a specific document."""
+        return await search_engine.search_document(query, user_id, document_name, k=k, org_id=org_id)
 
     # ── 3. Confidence scoring ──────────────────────────────────────────────────
     async def _calculate_confidence(
@@ -255,7 +252,7 @@ class RAGChain:
                 rewritten = await self.rewriteQuestion(question, recent_messages, provider)
 
                 # Hybrid retrieval
-                chunks, search_metadata = self.retrieveChunks(rewritten, user_id, org_id, document_filter)
+                chunks, search_metadata = await self.retrieveChunks(rewritten, user_id, org_id, document_filter)
 
                 # Generation
                 answer = await self.generateAnswer(
@@ -378,7 +375,7 @@ class RAGChain:
         rewritten = await self.rewriteQuestion(question, recent_messages)
 
         # Retrieve chunks
-        chunks, search_metadata = self.retrieveChunks(rewritten, user_id)
+        chunks, search_metadata = await self.retrieveChunks(rewritten, user_id)
 
         # Build context exactly like generateAnswer does
         if not chunks:

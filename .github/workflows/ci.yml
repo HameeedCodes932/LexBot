@@ -96,7 +96,7 @@ jobs:
       - run: npm install
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
-      - run: echo "Lint checks passed (no ESLint config)"
+      - run: npx eslint .
 
   test-frontend:
     name: Test Frontend

@@ -4,8 +4,9 @@ python-multipart
 langchain
 langchain-groq
 langchain-community
-langchain-chroma
-chromadb
+langchain-huggingface
+pgvector
+supabase
 python-jose[cryptography]
 passlib[bcrypt]
 pypdf
@@ -37,6 +38,7 @@ qrcode[pil]
 # ── Agent Tools ─────────────────────────────────────────────
 duckduckgo-search
 ics
+gTTS
 
 # ── Testing ─────────────────────────────────────────────────
 pytest

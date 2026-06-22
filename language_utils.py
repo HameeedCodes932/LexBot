@@ -63,9 +63,9 @@ def get_multilingual_embeddings():
     if not config.ENABLE_MULTILINGUAL:
         return None
     try:
-        from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+        from langchain_huggingface import HuggingFaceEmbeddings
         logger.info("Loading multilingual embedding model: %s", config.MULTILINGUAL_EMBEDDING_MODEL)
-        return HuggingFaceBgeEmbeddings(
+        return HuggingFaceEmbeddings(
             model_name=config.MULTILINGUAL_EMBEDDING_MODEL,
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},

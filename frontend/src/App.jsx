@@ -20,6 +20,7 @@ import TeamManagement from './pages/TeamManagement'
 import AuditLogs from './pages/AuditLogs'
 import APIKeys from './pages/APIKeys'
 import OrgSettings from './pages/OrgSettings'
+import Profile from './pages/Profile'
 import TermsOfService from './pages/TermsOfService'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import DPA from './pages/DPA'
@@ -55,6 +56,7 @@ function AppRoutes() {
         <Route path="/template-match" element={<ProtectedRoute><TemplateMatch /></ProtectedRoute>} />
         <Route path="/clause-library" element={<ProtectedRoute><ClauseLibrary /></ProtectedRoute>} />
         <Route path="/agent" element={<ProtectedRoute><Agent /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/org/team" element={<ProtectedRoute><TeamManagement /></ProtectedRoute>} />
         <Route path="/org/audit" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
         <Route path="/org/keys" element={<ProtectedRoute><APIKeys /></ProtectedRoute>} />

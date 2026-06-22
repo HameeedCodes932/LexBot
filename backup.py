@@ -1,16 +1,9 @@
 """
-Backup script for LexBot.
-
-Creates:
-  1. PostgreSQL dump of the main database (via pg_dump)
-  2. Snapshot of the ChromaDB vector store directory
-  3. Single compressed archive (.tar.gz) with timestamp
+Backup script for LexBot — database-only (pg_dump).
 
 Usage:
   python backup.py                          # default output dir: ./backups/
   python backup.py --output /path/to/backups
-  python backup.py --db-only                # database only, skip ChromaDB
-  python backup.py --chroma-only            # ChromaDB only, skip database
 
 Requirements:
   - pg_dump must be installed and on PATH
@@ -24,11 +17,8 @@ import os
 import subprocess
 import tarfile
 import tempfile
-import shutil
 
 from dotenv import load_dotenv
-
-import config
 
 load_dotenv()
 
@@ -41,7 +31,6 @@ logger = logging.getLogger("backup")
 
 
 def parse_db_url(url: str):
-    """Parse DATABASE_URL into pg_dump-compatible parts."""
     if not url:
         return None
     rest = url
@@ -57,17 +46,10 @@ def parse_db_url(url: str):
     username, password = user_pass.split(":", 1) if ":" in user_pass else (user_pass, "")
     host_port, database = rest.split("/", 1) if "/" in rest else (rest, "")
     host, port = host_port.split(":", 1) if ":" in host_port else (host_port, "5432")
-    return {
-        "host": host,
-        "port": port,
-        "username": username,
-        "password": password,
-        "database": database,
-    }
+    return {"host": host, "port": port, "username": username, "password": password, "database": database}
 
 
 def backup_postgres(db_info: dict, output_dir: str) -> str:
-    """Run pg_dump and return the path to the dump file."""
     dump_path = os.path.join(output_dir, "lexbot_db.sql")
     env = os.environ.copy()
     env["PGPASSWORD"] = db_info["password"]
@@ -79,8 +61,7 @@ def backup_postgres(db_info: dict, output_dir: str) -> str:
         "-U", db_info["username"],
         "-d", db_info["database"],
         "-f", dump_path,
-        "--no-owner",
-        "--no-acl",
+        "--no-owner", "--no-acl",
     ]
     logger.info("Running pg_dump: %s", " ".join(cmd))
     result = subprocess.run(cmd, env=env, capture_output=True, text=True)
@@ -91,22 +72,7 @@ def backup_postgres(db_info: dict, output_dir: str) -> str:
     return dump_path
 
 
-def backup_chromadb(chroma_dir: str, output_dir: str) -> str:
-    """Copy ChromaDB directory and return the path."""
-    if not os.path.isdir(chroma_dir):
-        logger.warning("ChromaDB directory not found: %s — skipping", chroma_dir)
-        return ""
-
-    dest = os.path.join(output_dir, "chroma_db")
-    if os.path.exists(dest):
-        shutil.rmtree(dest)
-    shutil.copytree(chroma_dir, dest)
-    logger.info("ChromaDB copied to %s", dest)
-    return dest
-
-
 def create_archive(output_dir: str, files: list[str]) -> str:
-    """Compress all backup files into a single tar.gz."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_name = f"lexbot_backup_{timestamp}.tar.gz"
     archive_path = os.path.join(output_dir, archive_name)
@@ -124,19 +90,9 @@ def create_archive(output_dir: str, files: list[str]) -> str:
     return archive_path
 
 
-def clean_temp_files(*paths):
-    for p in paths:
-        if p and os.path.isfile(p):
-            os.remove(p)
-        elif p and os.path.isdir(p):
-            shutil.rmtree(p)
-
-
 def main():
     parser = argparse.ArgumentParser(description="LexBot data backup")
     parser.add_argument("--output", default="backups", help="Output directory (default: ./backups)")
-    parser.add_argument("--db-only", action="store_true", help="Backup database only")
-    parser.add_argument("--chroma-only", action="store_true", help="Backup ChromaDB only")
     args = parser.parse_args()
 
     output_dir = os.path.abspath(args.output)
@@ -144,28 +100,25 @@ def main():
 
     temp_dir = tempfile.mkdtemp(prefix="lexbot_backup_")
     db_dump = ""
-    chroma_copy = ""
 
     try:
         db_url = os.getenv("DATABASE_URL", "")
         db_info = parse_db_url(db_url)
-
-        if not args.chroma_only:
-            if db_info:
-                db_dump = backup_postgres(db_info, temp_dir)
-            else:
-                logger.warning("DATABASE_URL not set or invalid — skipping database backup.")
-
-        if not args.db_only:
-            chroma_copy = backup_chromadb(config.CHROMA_DIR, temp_dir)
-
-        archive = create_archive(output_dir, [db_dump, chroma_copy])
-        if archive:
-            print(f"\n✅ Backup complete: {archive}")
+        if db_info:
+            db_dump = backup_postgres(db_info, temp_dir)
         else:
-            print("\n⚠️  Backup completed but no archive was created (no data to back up).")
+            logger.warning("DATABASE_URL not set or invalid — skipping database backup.")
+
+        archive = create_archive(output_dir, [db_dump])
+        if archive:
+            print(f"\nBackup complete: {archive}")
+        else:
+            print("\nNo backup was created.")
     finally:
-        clean_temp_files(db_dump, chroma_copy)
+        for p in [db_dump]:
+            if p and os.path.isfile(p):
+                os.remove(p)
+        import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 

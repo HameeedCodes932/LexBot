@@ -1,62 +1,41 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
-*.egg
-.venv/
-venv/
-env/
+FROM python:3.11-slim AS builder
 
-# Environment
-.env
-.env.local
-.env.production
+WORKDIR /app
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-*.sublime-*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    libxmlsec1-dev \
+    libxml2-dev \
+    pkg-config \
+    tesseract-ocr \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 
-# OS
-.DS_Store
-Thumbs.db
+COPY requirements.txt requirements-optional.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements-optional.txt
 
-# Node
-node_modules/
-frontend/dist/
+FROM python:3.11-slim
 
-# Database
-*.db
-*.sqlite
-data/
+WORKDIR /app
 
-# Logs
-*.log
-logs/
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libxmlsec1 \
+    tesseract-ocr \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 
-# Docker
-.docker/
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# ChromaDB
-data/chroma_db/
+COPY . .
 
-# Coverage
-.coverage
-htmlcov/
-coverage/
+RUN mkdir -p /app/data/chroma_db
 
-# Reports
-test-results/
-playwright-report/
+EXPOSE 8000
 
-# Backup
-backups/
-*.tar.gz
-
-# Playwright
-node_modules/
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

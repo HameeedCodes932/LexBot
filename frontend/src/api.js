@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '',
+  baseURL: import.meta.env.VITE_API_URL || '',
 })
 
 api.interceptors.request.use((config) => {
@@ -39,6 +39,21 @@ export async function registerUser(username, email, password, firmName) {
 export async function getMe() {
   const { data } = await api.get('/api/auth/me')
   return data
+}
+
+// ── Profile ───────────────────────────────────────────────────────────────────
+export async function updateProfile(data) {
+  const res = await api.patch('/api/auth/me', data)
+  return res.data
+}
+
+export async function uploadAvatar(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await api.post('/api/auth/avatar', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return res.data
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -400,6 +415,11 @@ export async function runAgentCommand(command, context = '', sessionId = null) {
 export async function getAgentTools() {
   const { data } = await api.get('/api/agent/tools')
   return data
+}
+
+export async function speakText(text) {
+  const response = await api.post('/api/voice/speak', { text }, { responseType: 'blob' })
+  return response.data
 }
 
 export default api

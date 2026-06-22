@@ -35,7 +35,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CHROMA_DIR: str = os.path.join(BASE_DIR, "..", "data", "chroma_db")
 
 # ── Embeddings ─────────────────────────────────────────────────────────────────
-EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-large-en-v1.5")
+EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5")
+HF_TOKEN: str = os.getenv("HF_TOKEN", "")
 
 # ── Multilingual (Plan 2) ──────────────────────────────────────────────────────
 ENABLE_MULTILINGUAL: bool = os.getenv("ENABLE_MULTILINGUAL", "true").lower() == "true"
@@ -157,6 +158,11 @@ WEBHOOK_TIMEOUT_SECONDS: int = 10
 WEBHOOK_MAX_FAILURES: int = 5
 SSO_ENABLED: bool = os.getenv("SSO_ENABLED", "false").lower() == "true"
 MAX_ORG_MEMBERS: int = 50
+
+# ── Supabase (cloud storage) ────────────────────────────────────────────────────
+SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+SUPABASE_STORAGE_BUCKET: str = os.getenv("SUPABASE_STORAGE_BUCKET", "lexbot-uploads")
 
 # ── Data Encryption at Rest ─────────────────────────────────────────────────────
 ENCRYPTION_ENABLED: bool = os.getenv("ENCRYPTION_ENABLED", "false").lower() == "true"
