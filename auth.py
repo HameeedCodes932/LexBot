@@ -10,6 +10,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
@@ -91,9 +92,17 @@ async def create_user(
         await session.flush()
         logger.info("User created: username=%s email=%s", username, email)
         return {"success": True, "message": "User created successfully."}
+    except IntegrityError as exc:
+        logger.warning("User creation failed (integrity): %s", exc)
+        err_msg = str(exc.orig) if exc.orig else str(exc)
+        if "already exists" in err_msg and "email" in err_msg:
+            return {"success": False, "error": "An account with this email already exists."}
+        if "already exists" in err_msg and "username" in err_msg:
+            return {"success": False, "error": "This username is already taken."}
+        return {"success": False, "error": "This email or username is already registered."}
     except Exception as exc:
         logger.warning("User creation failed: %s", exc)
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": "Registration failed. Please try again."}
 
 
 async def promote_user_to_admin(session: AsyncSession, user_id: int) -> dict:

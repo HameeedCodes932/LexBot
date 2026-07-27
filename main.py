@@ -3746,7 +3746,7 @@ async def health():
 #  FRONTEND STATIC FILES
 # ══════════════════════════════════════════════════════════════════════════════
 
-_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+_frontend_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
 _frontend_assets = os.path.join(_frontend_dist, "assets")
 _frontend_index = os.path.join(_frontend_dist, "index.html")
 

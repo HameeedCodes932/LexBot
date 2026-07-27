@@ -423,18 +423,10 @@ class Invoice(Base):
 
 # ── Initialization ─────────────────────────────────────────────────────────────
 async def init_db() -> None:
-    """Initialize DB using Alembic migrations. Falls back to create_all if migration fails."""
-    try:
-        from alembic.config import Config
-        from alembic import command
-        alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
-        logger.info("Database migration to head completed.")
-    except Exception as exc:
-        logger.warning("Alembic migration failed (%s), falling back to create_all.", exc)
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created / verified via create_all fallback.")
+    """Initialize DB by creating any missing tables."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created / verified.")
 
 
 # ── Session dependency ─────────────────────────────────────────────────────────

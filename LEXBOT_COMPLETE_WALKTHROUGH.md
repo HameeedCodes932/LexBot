@@ -1,4 +1,4 @@
-# LexBot 3.0 — Complete Technical Walkthrough
+# LexBot 3.0 — Complete Technical Walkthrough ( postgresql://postgres:[YOUR-PASSWORD]@db.qurradppzchtjsruqelq.supabase.co:5432/postgres )
 
 > **Version:** 3.0.0  
 > **Codebase:** ~20,000+ lines across 55+ files  

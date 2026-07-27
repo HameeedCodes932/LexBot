@@ -41,11 +41,15 @@ _LANGUAGE_NAMES = {
 def detect_language(text: str) -> str:
     if not config.DETECT_LANGUAGE or not text.strip():
         return "en"
+    if len(text.strip()) < 20:
+        return "en"
     try:
-        from langdetect import detect, DetectorFactory
+        from langdetect import detect, detect_langs, DetectorFactory
         DetectorFactory.seed = 42
-        lang = detect(text[:500])
-        return lang if lang else "en"
+        probs = detect_langs(text[:500])
+        if probs and probs[0].prob >= 0.7:
+            return str(probs[0].lang)
+        return "en"
     except Exception:
         return "en"
 

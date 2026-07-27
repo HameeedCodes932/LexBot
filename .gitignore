@@ -66,3 +66,10 @@ backups/
 # Startup logs
 startup_out.txt
 startup_err.txt
+
+# Runtime logs
+*_log.txt
+*_err.txt
+*_out.txt
+backend_err.txt
+frontend_err.txt
