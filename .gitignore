@@ -73,3 +73,6 @@ startup_err.txt
 *_out.txt
 backend_err.txt
 frontend_err.txt
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat

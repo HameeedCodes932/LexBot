@@ -194,30 +194,28 @@ The AI Agent extends beyond document analysis with 9 callable tools:
 ## 6. Screenshots
 
 ### Chat Interface
-![Chat Interface](docs/screenshots/chat.png)
-*AI-powered Q&A with source citations, confidence scoring, and risk flags. The chat supports multi-provider LLM switching and document filtering.*
+![Chat Interface](docs/screenshots/Screenshot%202026-07-19%20115832.png)
+*AI-powered Q&A with source citations, confidence scoring, and risk flags.*
 
-### Document Management
-![Document Management](docs/screenshots/documents.png)
-*Upload PDF, DOCX, or TXT files with drag-and-drop. OCR automatically processes scanned PDFs. Paginated list with search and delete.*
+### Document Upload & Management
+![Documents](docs/screenshots/Screenshot%202026-07-19%20120112.png)
+*Upload PDF, DOCX, or TXT files. OCR processes scanned PDFs automatically.*
 
 ### Clause Extraction
-![Clause Extraction](docs/screenshots/clause-extraction.png)
-*Select a document and clause type to extract specific legal provisions. Results include raw text, AI analysis, and save-to-library functionality.*
+![Clause Extraction](docs/screenshots/Screenshot%202026-07-19%20120133.png)
+*Select a document and clause type to extract specific legal provisions.*
 
 ### Contract Comparison
-![Contract Comparison](docs/screenshots/contract-comparison.png)
-*Side-by-side AI comparison of two contracts for a specific clause type. Highlights key differences and flags unusual terms.*
+![Contract Comparison](docs/screenshots/Screenshot%202026-07-19%20120159.png)
+*Side-by-side AI comparison of two contracts for a specific clause type.*
+
+### Summarization
+![Summarization](docs/screenshots/Screenshot%202026-07-19%20120233.png)
+*Generate brief, detailed, or executive summaries of legal documents.*
 
 ### Obligation Tracker
-![Obligation Tracker](docs/screenshots/obligations.png)
-*Extract and track obligations from contracts. Update status (pending/completed/overdue) with visual progress indicators.*
-
-### AI Agent
-![AI Agent](docs/screenshots/agent.png)
-*Natural language agent with 9 tools. Execute commands like "summarize my contract" or "search for indemnification clauses" using plain English.*
-
-> **Note:** Replace the screenshot paths above with actual screenshots saved in a `docs/screenshots/` directory. Take screenshots of the running app and commit them to the repository.
+![Obligation Tracker](docs/screenshots/Screenshot%202026-07-19%20120251.png)
+*Extract and track obligations with status (pending/completed/overdue).*
 
 ---
 
