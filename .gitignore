@@ -10,12 +10,8 @@ venv/
 env/
 
 # Environment
-.env
-.env.local
-.env.production
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -76,3 +72,5 @@ frontend_err.txt
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+config.bat
+.gitignore
