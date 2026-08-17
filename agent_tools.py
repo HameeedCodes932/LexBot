@@ -165,30 +165,86 @@ def list_directory(directory_path: str = "", extension_filter: str = "") -> dict
 
 def _ddg_search(query: str, max_results: int) -> list:
     from duckduckgo_search import DDGS
-    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
-    with DDGS(headers={"User-Agent": ua}) as ddgs:
-        results = list(ddgs.text(query, max_results=max_results))
+    with DDGS(region="wt-wt") as ddgs:
+        results = list(ddgs.text(query, max_results=max_results, backend="api"))
         if results:
             return results
-        results = list(ddgs._text_bing(query, max_results=max_results))
+        results = list(ddgs.text(query, max_results=max_results, backend="html"))
         return results
 
 
+def _google_fallback(query: str, max_results: int) -> list:
+    """Fallback: scrape Google search results."""
+    import requests
+    from urllib.parse import quote_plus
+    url = f"https://www.google.com/search?q={quote_plus(query)}&num={max_results}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    resp = requests.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+    from html.parser import HTMLParser
+    results = []
+
+    class GoogleParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self._in_h3 = False
+            self._in_a = False
+            self._in_snippet = False
+            self._current = {}
+            self._depth = 0
+        def handle_starttag(self, tag, attrs):
+            attrs_d = dict(attrs)
+            if tag == "h3":
+                self._in_h3 = True
+                self._current = {"title": "", "snippet": "", "url": ""}
+            if tag == "a" and self._in_h3:
+                self._in_a = True
+                self._current["url"] = attrs_d.get("href", "")
+        def handle_endtag(self, tag):
+            if tag == "h3":
+                self._in_h3 = False
+            if tag == "a" and self._in_a:
+                self._in_a = False
+                if self._current.get("title"):
+                    results.append(self._current.copy())
+                    self._current = {"title": "", "snippet": "", "url": ""}
+        def handle_data(self, data):
+            if self._in_h3:
+                self._current["title"] += data
+
+    parser = GoogleParser()
+    parser.feed(resp.text)
+    return results[:max_results]
+
+
 def web_search(query: str, max_results: int = 5) -> dict:
-    """Search the web using DuckDuckGo (falls back to Bing backend)."""
+    """Search the web using DuckDuckGo with Google fallback."""
     try:
         results = _ddg_search(query, max_results)
+        if not results or all(not r.get("title", "").strip() for r in results):
+            results = _google_fallback(query, max_results)
         formatted = [
             {
                 "title": r.get("title", ""),
-                "snippet": r.get("body", "")[:300],
-                "url": r.get("href", "")
+                "snippet": (r.get("body", "") or r.get("snippet", ""))[:300],
+                "url": r.get("href", r.get("url", ""))
             }
-            for r in results
+            for r in results if r.get("title", "").strip()
         ]
-        return {"success": True, "result": {"query": query, "results": formatted}}
+        return {"success": True, "result": {"query": query, "results": formatted[:max_results]}}
     except Exception as e:
-        return {"success": False, "error": f"Web search failed: {str(e)}"}
+        try:
+            results = _google_fallback(query, max_results)
+            formatted = [
+                {"title": r.get("title", ""), "snippet": r.get("snippet", "")[:300], "url": r.get("url", "")}
+                for r in results if r.get("title", "").strip()
+            ]
+            return {"success": True, "result": {"query": query, "results": formatted}}
+        except Exception as e2:
+            return {"success": False, "error": f"Web search failed: {str(e)} / {str(e2)}"}
 
 
 def create_reminder(title: str, date: str, description: str = "", output_path: str = "reminder.ics") -> dict:
