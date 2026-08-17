@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { LayoutProvider } from './context/LayoutContext'
 import { ToastProvider } from './components/Toast'
 import OnboardingTour from './components/OnboardingTour'
 import Landing from './pages/Landing'
@@ -77,8 +78,10 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ToastProvider />
-        <AppRoutes />
+        <LayoutProvider>
+          <ToastProvider />
+          <AppRoutes />
+        </LayoutProvider>
       </AuthProvider>
     </ThemeProvider>
   )

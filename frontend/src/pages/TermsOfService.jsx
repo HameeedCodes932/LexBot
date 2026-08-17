@@ -5,7 +5,7 @@ import { TERMS_OF_SERVICE, LEGAL } from '../legalContent'
 export default function TermsOfService() {
   return (
     <div className="min-h-screen bg-white dark:bg-navy-900">
-      <nav className="sticky top-0 z-50 bg-white/80 dark:bg-navy-900/80 backdrop-blur-md border-b border-gray-200 dark:border-navy-700">
+      <nav className="sticky top-0 z-50 bg-white dark:bg-navy-900 border-b border-gray-200 dark:border-navy-700">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-navy-900 dark:bg-amber-400 flex items-center justify-center">

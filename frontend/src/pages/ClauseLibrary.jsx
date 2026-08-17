@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { getClauses, deleteClause, toggleBenchmark, saveClause } from '../api'
 
 const CLAUSE_TYPES = [
@@ -89,13 +90,15 @@ export default function ClauseLibrary() {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0">
+        <WorkspaceTopBar />
+        <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center">
-                <Library size={20} className="text-white" />
+              <div className="w-10 h-10 rounded-xl bg-amber-400 flex items-center justify-center">
+                <Library size={20} className="text-navy-900" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Clause Library</h1>
@@ -104,7 +107,7 @@ export default function ClauseLibrary() {
             </div>
             <button
               onClick={() => setShowAdd(!showAdd)}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-rose-600 to-pink-600 text-white rounded-lg font-medium hover:from-rose-700 hover:to-pink-700 transition-all text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white rounded-lg font-medium transition-colors text-sm"
             >
               <Plus size={16} />
               Add Clause
@@ -169,7 +172,7 @@ export default function ClauseLibrary() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={handleSave} className="px-4 py-2 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700 transition-colors">Save</button>
+                <button onClick={handleSave} className="px-4 py-2 bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white rounded-lg text-sm font-medium transition-colors">Save</button>
                 <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-navy-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-navy-700 transition-colors">Cancel</button>
               </div>
             </div>
@@ -277,6 +280,7 @@ export default function ClauseLibrary() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Bot, Sparkles, Terminal, Loader2, CheckCircle, XCircle, Wrench, Plus, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { runAgentCommand, transcribeAudio, speakText } from '../api'
 
 const EXAMPLE_COMMANDS = [
@@ -166,9 +167,17 @@ export default function Agent() {
         setCommand(finalTranscriptRef.current + interim)
       }
 
-      recognition.onerror = () => {
+      recognition.onerror = (event) => {
         setRecording(false)
-        toast.error('Speech recognition error')
+        const reasons = {
+          'not-allowed': 'Microphone access was denied. Check browser permissions.',
+          'no-speech': 'No speech detected. Try again.',
+          'audio-capture': 'No microphone found.',
+          network: 'Speech recognition is offline. Check your internet connection.',
+          aborted: 'Speech recognition was cancelled.',
+          'service-not-allowed': 'Speech service unavailable in this browser/region.',
+        }
+        toast.error(`Speech recognition error: ${reasons[event.error] || event.error}`)
       }
 
       recognition.onend = () => {
@@ -335,68 +344,62 @@ export default function Agent() {
       <Navbar />
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-gray-200 dark:border-navy-700 bg-white dark:bg-navy-800">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center">
-              <Bot size={16} className="text-navy-900" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Agent</h2>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Natural language commands — emails, search, files, reminders</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Speaking indicator */}
-            {speaking && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 animate-pulse">
-                <Volume2 size={12} className="text-emerald-500" />
-                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Speaking...</span>
+        <WorkspaceTopBar
+          title="Agent"
+          actions={
+            <div className="flex items-center gap-2">
+              {/* Speaking indicator */}
+              {speaking && (
+                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 animate-pulse">
+                  <Volume2 size={12} className="text-emerald-500" />
+                  <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Speaking...</span>
+                </div>
+              )}
+
+              {/* Voice toggle */}
+              <button
+                onClick={() => {
+                  const next = !voiceEnabled
+                  setVoiceEnabled(next)
+                  if (!next && currentAudioRef.current) {
+                    currentAudioRef.current.pause()
+                    currentAudioRef.current = null
+                    setSpeaking(false)
+                  }
+                  toast.success(next ? 'Voice output enabled' : 'Voice output disabled')
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  voiceEnabled
+                    ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30'
+                    : 'bg-gray-100 dark:bg-navy-700 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-navy-600 hover:bg-gray-200 dark:hover:bg-navy-600'
+                }`}
+                title={voiceEnabled ? 'Disable voice output' : 'Enable voice output'}
+              >
+                {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                <span className="hidden md:inline">{voiceEnabled ? 'Voice On' : 'Voice Off'}</span>
+              </button>
+
+              <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+                <Terminal size={12} />
+                <span>8 tools available</span>
               </div>
-            )}
-
-            {/* Voice toggle */}
-            <button
-              onClick={() => {
-                const next = !voiceEnabled
-                setVoiceEnabled(next)
-                if (!next && currentAudioRef.current) {
-                  currentAudioRef.current.pause()
-                  currentAudioRef.current = null
-                  setSpeaking(false)
-                }
-                toast.success(next ? 'Voice output enabled' : 'Voice output disabled')
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                voiceEnabled
-                  ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30'
-                  : 'bg-gray-100 dark:bg-navy-700 text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-navy-600 hover:bg-gray-200 dark:hover:bg-navy-600'
-              }`}
-              title={voiceEnabled ? 'Disable voice output' : 'Enable voice output'}
-            >
-              {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-              {voiceEnabled ? 'Voice On' : 'Voice Off'}
-            </button>
-
-            <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
-              <Terminal size={12} />
-              <span>8 tools available</span>
+              <button
+                onClick={newSession}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:text-navy-900 dark:hover:text-amber-400 hover:bg-gray-100 dark:hover:bg-navy-700 font-medium transition-colors"
+              >
+                <Plus size={16} />
+                <span className="hidden md:inline">New Session</span>
+              </button>
             </div>
-            <button
-              onClick={newSession}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-navy-900 dark:hover:text-amber-400 font-medium transition-colors"
-            >
-              <Plus size={16} />
-              New Session
-            </button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Messages area */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-4">
           {/* Example commands (shown when empty) */}
           {history.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center h-full">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center mb-4 shadow-lg shadow-amber-400/20">
+              <div className="w-16 h-16 rounded-2xl bg-amber-400 flex items-center justify-center mb-4 shadow-sm">
                 <Bot size={28} className="text-navy-900" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">LexBot Agent</h3>

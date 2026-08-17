@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { getDocuments, summarizeDocument } from '../api'
 
 const SUMMARY_TYPES = [
@@ -45,12 +46,14 @@ export default function DocumentSummary() {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0">
+        <WorkspaceTopBar />
+        <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
           {/* Header */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-              <FileBarChart size={20} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-amber-400 flex items-center justify-center">
+              <FileBarChart size={20} className="text-navy-900" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Contract Summarization</h1>
@@ -66,7 +69,7 @@ export default function DocumentSummary() {
                 <select
                   value={selectedDoc}
                   onChange={(e) => setSelectedDoc(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400"
                 >
                   <option value="">Select a document...</option>
                   {documents.map((d) => (
@@ -83,8 +86,8 @@ export default function DocumentSummary() {
                       onClick={() => setSummaryType(t.value)}
                       className={`flex-1 px-3 py-2.5 rounded-lg text-sm font-medium border transition-all ${
                         summaryType === t.value
-                          ? 'bg-violet-50 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400'
-                          : 'border-gray-200 dark:border-navy-600 text-gray-600 dark:text-gray-400 hover:border-violet-300 dark:hover:border-violet-700'
+                          ? 'bg-navy-900 dark:bg-amber-400 text-white dark:text-navy-900 border-transparent'
+                          : 'border-gray-200 dark:border-navy-600 text-gray-600 dark:text-gray-400 hover:border-navy-900 dark:hover:border-amber-400'
                       }`}
                       title={t.desc}
                     >
@@ -97,7 +100,7 @@ export default function DocumentSummary() {
             <button
               onClick={handleSummarize}
               disabled={!selectedDoc || loading}
-              className="w-full px-4 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-lg font-medium hover:from-violet-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              className="w-full px-4 py-3 bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
@@ -118,7 +121,7 @@ export default function DocumentSummary() {
             <div className="bg-white dark:bg-navy-800 rounded-xl border border-gray-200 dark:border-navy-700 shadow-sm animate-fade-in">
               <div className="px-6 py-4 border-b border-gray-200 dark:border-navy-700 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <FileText size={16} className="text-violet-500" />
+                  <FileText size={16} className="text-amber-600 dark:text-amber-400" />
                   <h3 className="font-semibold text-gray-900 dark:text-white">{result.document_name}</h3>
                 </div>
                 <span className="text-xs text-gray-400 bg-gray-100 dark:bg-navy-700 px-2 py-1 rounded-full">
@@ -133,6 +136,7 @@ export default function DocumentSummary() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

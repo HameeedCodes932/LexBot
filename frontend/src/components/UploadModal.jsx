@@ -133,7 +133,7 @@ export default function UploadModal({ onClose, onSuccess }) {
           </>
         ) : (
           <div className="text-center py-6">
-            <CheckCircle size={40} className="mx-auto text-green-500 mb-2" />
+            <CheckCircle size={40} className="mx-auto text-emerald-500 mb-2" />
             <p className="font-medium text-gray-900 dark:text-white">
               Ingested {result.chunks} chunks
             </p>

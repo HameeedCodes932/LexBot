@@ -32,7 +32,7 @@ services:
       - key: CORS_ORIGINS
         value: "https://lexbot-frontend.vercel.app"
       - key: DEFAULT_LLM_PROVIDER
-        value: groq
+        value: google
       - key: ENABLE_MULTILINGUAL
         value: "true"
       - key: ENABLE_VOICE

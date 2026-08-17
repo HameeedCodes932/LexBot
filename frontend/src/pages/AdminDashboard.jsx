@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Users, FileText, MessageSquare, Clock, Calendar, Search, Shield, XCircle, Scale } from 'lucide-react'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { getAdminAnalytics, getAdminUsers, deactivateUser } from '../api'
 import { StatCardSkeleton } from '../components/LoadingSkeleton'
 
@@ -52,9 +53,7 @@ export default function AdminDashboard() {
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="px-4 md:px-6 py-3 border-b border-gray-200 dark:border-navy-700 bg-white dark:bg-navy-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Admin Dashboard</h2>
-        </div>
+        <WorkspaceTopBar title="Admin Dashboard" />
 
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-6">
           {/* Stats */}
@@ -65,13 +64,13 @@ export default function AdminDashboard() {
               </>
             ) : (
               <>
-                <StatCard icon={Users} label="Total Users" value={analytics?.total_users || 0} color="bg-blue-600" />
-                <StatCard icon={FileText} label="Total Documents" value={analytics?.total_documents || 0} color="bg-green-600" />
-                <StatCard icon={MessageSquare} label="Total Queries" value={analytics?.total_queries || 0} color="bg-purple-600" />
-                <StatCard icon={Clock} label="Avg Response" value={`${analytics?.avg_response_time_ms || 0}ms`} color="bg-orange-600" />
-                <StatCard icon={Calendar} label="Queries Today" value={analytics?.queries_today || 0} color="bg-teal-600" />
-                <StatCard icon={Search} label="Clause Extractions" value={analytics?.total_clause_extractions || 0} color="bg-indigo-600" />
-                <StatCard icon={Scale} label="Comparisons" value={analytics?.total_comparisons || 0} color="bg-rose-600" />
+                <StatCard icon={Users} label="Total Users" value={analytics?.total_users || 0} color="bg-navy-800" />
+                <StatCard icon={FileText} label="Total Documents" value={analytics?.total_documents || 0} color="bg-amber-500" />
+                <StatCard icon={MessageSquare} label="Total Queries" value={analytics?.total_queries || 0} color="bg-gray-600" />
+                <StatCard icon={Clock} label="Avg Response" value={`${analytics?.avg_response_time_ms || 0}ms`} color="bg-amber-700" />
+                <StatCard icon={Calendar} label="Queries Today" value={analytics?.queries_today || 0} color="bg-navy-900" />
+                <StatCard icon={Search} label="Clause Extractions" value={analytics?.total_clause_extractions || 0} color="bg-gray-700" />
+                <StatCard icon={Scale} label="Comparisons" value={analytics?.total_comparisons || 0} color="bg-amber-600" />
               </>
             )}
           </div>
@@ -168,7 +167,7 @@ export default function AdminDashboard() {
                         <td className="py-2 text-gray-600 dark:text-gray-400">{u.firm_name || '—'}</td>
                         <td className="py-2 text-center">
                           {u.is_active ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
                               Active
                             </span>
                           ) : (

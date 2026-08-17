@@ -79,7 +79,7 @@ export default function Register() {
               placeholder="Your Law Firm" />
           </div>
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-          {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
+          {success && <p className="text-sm text-emerald-600 dark:text-emerald-400">{success}</p>}
           <button type="submit" disabled={loading}
             className="w-full py-2.5 bg-navy-900 dark:bg-amber-400 dark:text-navy-900 text-white rounded-lg font-medium text-sm hover:bg-navy-800 dark:hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {loading ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" /> Creating account...</> : 'Create Account'}

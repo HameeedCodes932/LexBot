@@ -10,8 +10,8 @@ export function AuthProvider({ children }) {
   const [branding, setBranding] = useState({
     name: 'LexBot',
     logo_url: null,
-    primary_color: '#0f172a', // Slate 900
-    secondary_color: '#3b82f6', // Blue 500
+    primary_color: '#211e1a',
+    secondary_color: '#c8a34f',
     sso_enabled: false,
   })
 
@@ -23,14 +23,14 @@ export function AuthProvider({ children }) {
         setBranding({
           name: brand.name || 'LexBot',
           logo_url: brand.logo_url,
-          primary_color: brand.primary_color || '#0f172a',
-          secondary_color: brand.secondary_color || '#3b82f6',
+          primary_color: brand.primary_color || '#211e1a',
+          secondary_color: brand.secondary_color || '#c8a34f',
           sso_enabled: brand.sso_enabled || false,
         })
         
         // Dynamically apply colors to document root
-        document.documentElement.style.setProperty('--color-primary', brand.primary_color || '#0f172a')
-        document.documentElement.style.setProperty('--color-secondary', brand.secondary_color || '#3b82f6')
+        document.documentElement.style.setProperty('--color-primary', brand.primary_color || '#211e1a')
+        document.documentElement.style.setProperty('--color-secondary', brand.secondary_color || '#c8a34f')
       }
     } catch (err) {
       console.warn('Failed to load branding info', err)

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { CreditCard, Shield, Zap, Check, X, ArrowUp, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { CardSkeleton } from '../components/LoadingSkeleton'
 import { getSubscription, createCheckoutSession, createPortalSession, getInvoices } from '../api'
 
@@ -58,9 +59,7 @@ export default function Billing() {
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="px-4 md:px-6 py-3 border-b border-gray-200 dark:border-navy-700 bg-white dark:bg-navy-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Billing & Usage</h2>
-        </div>
+        <WorkspaceTopBar title="Billing & Usage" />
 
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-6">
           {loading ? (
@@ -219,7 +218,7 @@ export default function Billing() {
                       <ul className="mt-3 space-y-1.5">
                         {p.features.map((f) => (
                           <li key={f} className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
-                            <Check size={12} className="text-green-500 flex-shrink-0" />
+                            <Check size={12} className="text-emerald-500 flex-shrink-0" />
                             {f}
                           </li>
                         ))}
@@ -255,7 +254,7 @@ export default function Billing() {
                             <td className="py-2">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                                 inv.status === 'paid'
-                                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
                                   : inv.status === 'failed'
                                   ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                                   : 'bg-gray-100 dark:bg-navy-700 text-gray-500 dark:text-gray-400'

@@ -5,8 +5,8 @@ load_dotenv()
 
 # ── LLM Providers ─────────────────────────────────────────────────────────────
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = "llama-3.3-70b-versatile"
-GROQ_MEMORY_MODEL: str = "llama-3.1-8b-instant"
+GROQ_MODEL: str = "openai/gpt-oss-120b"
+GROQ_MEMORY_MODEL: str = "openai/gpt-oss-20b"
 
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL: str = "gpt-4o"
@@ -15,9 +15,9 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
 
 GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-GOOGLE_MODEL: str = "gemini-1.5-pro"
+GOOGLE_MODEL: str = "gemini-2.0-flash"
 
-DEFAULT_LLM_PROVIDER: str = os.getenv("DEFAULT_LLM_PROVIDER", "groq")
+DEFAULT_LLM_PROVIDER: str = os.getenv("DEFAULT_LLM_PROVIDER", "google")
 
 # ── JWT / Auth ─────────────────────────────────────────────────────────────────
 SECRET_KEY: str = os.getenv("SECRET_KEY", "changeme-set-in-dotenv")

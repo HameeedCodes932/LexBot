@@ -6,6 +6,8 @@ import SourceCard from './SourceCard'
 import RiskBadge from './RiskBadge'
 
 function ConfidenceBadge({ confidence }) {
+  const [expanded, setExpanded] = useState(false)
+
   if (!confidence || confidence.score == null) return null
 
   const colors = {
@@ -13,8 +15,6 @@ function ConfidenceBadge({ confidence }) {
     Medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800',
     Low: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800',
   }
-
-  const [expanded, setExpanded] = useState(false)
 
   return (
     <div className="mt-2">
@@ -50,9 +50,9 @@ function ProviderBadge({ provider }) {
   const labels = { groq: 'Groq', openai: 'GPT-4', anthropic: 'Claude', google: 'Gemini' }
   const colors = {
     groq: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    openai: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    anthropic: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    google: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    openai: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    anthropic: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+    google: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-gray-300',
   }
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${colors[provider] || 'bg-gray-100 text-gray-600'}`}>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Scale, AlertTriangle, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { getDocuments, compareClauses } from '../api'
 
 const CLAUSE_TYPES = [
@@ -57,9 +58,7 @@ export default function ContractComparison() {
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="px-4 md:px-6 py-3 border-b border-gray-200 dark:border-navy-700 bg-white dark:bg-navy-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white" data-tour="tools">Compare Contracts</h2>
-        </div>
+        <WorkspaceTopBar title="Compare Contracts" titleProps={{ 'data-tour': 'tools' }} />
 
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
           <div className="bg-white dark:bg-navy-800 rounded-xl border border-gray-200 dark:border-navy-700 p-4 mb-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">

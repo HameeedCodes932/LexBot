@@ -5,22 +5,23 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import {
   getDocuments, extractObligations, getObligations,
   updateObligationStatus, deleteObligation,
 } from '../api'
 
 const STATUS_CONFIG = {
-  pending: { label: 'Pending', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', icon: Circle },
+  pending: { label: 'Pending', color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400', icon: Circle },
   completed: { label: 'Completed', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', icon: CheckCircle2 },
   overdue: { label: 'Overdue', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', icon: AlertTriangle },
 }
 
 const TYPE_COLORS = {
-  payment: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  delivery: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  reporting: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  compliance: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  payment: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  delivery: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+  reporting: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  compliance: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
   other: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
 }
 
@@ -94,12 +95,14 @@ export default function ObligationTracker() {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0">
+        <WorkspaceTopBar />
+        <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
           {/* Header */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center">
-              <ListChecks size={20} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-amber-400 flex items-center justify-center">
+              <ListChecks size={20} className="text-navy-900" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Obligation Tracker</h1>
@@ -111,7 +114,7 @@ export default function ObligationTracker() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
               { label: 'Total', value: counts.total, color: 'border-gray-300 dark:border-navy-600' },
-              { label: 'Pending', value: counts.pending, color: 'border-blue-300 dark:border-blue-700' },
+              { label: 'Pending', value: counts.pending, color: 'border-amber-300 dark:border-amber-700' },
               { label: 'Completed', value: counts.completed, color: 'border-emerald-300 dark:border-emerald-700' },
               { label: 'Overdue', value: counts.overdue, color: 'border-red-300 dark:border-red-700' },
             ].map(({ label, value, color }) => (
@@ -129,7 +132,7 @@ export default function ObligationTracker() {
               <select
                 value={selectedDoc}
                 onChange={(e) => setSelectedDoc(e.target.value)}
-                className="flex-1 px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="flex-1 px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400"
               >
                 <option value="">Select document...</option>
                 {documents.map((d) => (
@@ -139,7 +142,7 @@ export default function ObligationTracker() {
               <button
                 onClick={handleExtract}
                 disabled={!selectedDoc || extracting}
-                className="px-5 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-lg font-medium hover:from-teal-700 hover:to-emerald-700 disabled:opacity-50 transition-all flex items-center gap-2"
+                className="px-5 py-2.5 bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white rounded-lg font-medium disabled:opacity-50 transition-colors flex items-center gap-2"
               >
                 {extracting ? <Loader2 size={16} className="animate-spin" /> : <ListChecks size={16} />}
                 {extracting ? 'Extracting...' : 'Extract'}
@@ -249,6 +252,7 @@ export default function ObligationTracker() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

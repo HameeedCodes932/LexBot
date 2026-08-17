@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import DeleteDataModal from '../components/DeleteDataModal'
 import { updateProfile, uploadAvatar } from '../api'
 
@@ -63,13 +64,15 @@ export default function Profile() {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div className="flex-1 flex flex-col min-w-0">
+        <WorkspaceTopBar />
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="max-w-2xl mx-auto px-4 py-8">
           {/* Profile header */}
           <div className="bg-white dark:bg-navy-800 rounded-2xl border border-gray-200 dark:border-navy-700 p-8 mb-6">
             <div className="flex items-center gap-6">
               <div className="relative shrink-0">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center text-navy-900 font-bold text-2xl shadow-md overflow-hidden">
+                <div className="w-20 h-20 rounded-full bg-amber-400 flex items-center justify-center text-navy-900 font-bold text-2xl shadow-md overflow-hidden">
                   {avatarSrc ? (
                     <img src={avatarSrc} alt="avatar" className="w-full h-full object-cover" />
                   ) : (
@@ -198,6 +201,7 @@ export default function Profile() {
       </div>
 
       <DeleteDataModal open={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} />
+      </div>
     </div>
   )
 }

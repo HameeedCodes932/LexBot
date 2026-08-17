@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { FileText, Upload, Eye, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import UploadModal from '../components/UploadModal'
 import DocumentViewer from '../components/DocumentViewer'
 import { TableRowSkeleton } from '../components/LoadingSkeleton'
@@ -47,17 +48,19 @@ export default function Documents() {
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-gray-200 dark:border-navy-700 bg-white dark:bg-navy-800">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documents</h2>
-          <button
-            onClick={() => setShowUpload(true)}
-            data-tour="upload"
-            className="flex items-center gap-1.5 px-4 py-2 bg-navy-900 dark:bg-amber-400 dark:text-navy-900 text-white rounded-lg text-sm font-medium hover:bg-navy-800 dark:hover:bg-amber-500 transition-colors"
-          >
-            <Upload size={16} />
-            Upload Document
-          </button>
-        </div>
+        <WorkspaceTopBar
+          title="Documents"
+          actions={
+            <button
+              onClick={() => setShowUpload(true)}
+              data-tour="upload"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-navy-900 dark:bg-amber-400 dark:text-navy-900 text-white rounded-lg text-xs font-medium hover:bg-navy-800 dark:hover:bg-amber-500 transition-colors"
+            >
+              <Upload size={14} />
+              Upload
+            </button>
+          }
+        />
 
         <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
           {loading ? (

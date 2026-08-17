@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getAPIKeys, createAPIKey, deleteAPIKey } from '../api'
 import Navbar from '../components/Navbar'
-import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff, Calendar, AlertTriangle } from 'lucide-react'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
+import { Key, Plus, Trash2, Copy, Check, Calendar, AlertTriangle } from 'lucide-react'
 
 export default function APIKeys() {
   const { isOrgAdmin } = useAuth()
@@ -63,33 +64,40 @@ export default function APIKeys() {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-900 text-slate-100">
+    <div className="flex min-h-screen bg-gray-50 dark:bg-navy-900 text-navy-900 dark:text-gray-100">
       <Navbar />
 
-      <main className="flex-1 p-8 overflow-y-auto max-w-6xl mx-auto">
+      <div className="flex-1 flex flex-col min-w-0">
+        <WorkspaceTopBar />
+
+        <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-6xl mx-auto w-full">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
-            <Key className="text-blue-500 h-8 w-8" />
-            API Key Management
-          </h1>
-          <p className="text-slate-400 mt-1">Authenticate programmatic requests and integrate LexBot into your legal tech stack.</p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-400 flex items-center justify-center">
+              <Key className="text-navy-900 h-5 w-5" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-navy-900 dark:text-white">
+              API Key Management
+            </h1>
+          </div>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Authenticate programmatic requests and integrate LexBot into your legal tech stack.</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400">
+          <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400">
             {error}
           </div>
         )}
 
         {/* Secret Key Modal/Alert (Show once on create) */}
         {newKeyData && (
-          <div className="mb-8 p-6 rounded-2xl bg-amber-500/10 border-2 border-amber-500/30 text-slate-100 animate-pulse-subtle">
+          <div className="mb-8 p-6 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-navy-900 dark:text-gray-100">
             <div className="flex items-start gap-4">
-              <AlertTriangle className="text-amber-500 h-6 w-6 mt-1 flex-shrink-0" />
+              <AlertTriangle className="text-amber-600 dark:text-amber-400 h-6 w-6 mt-1 flex-shrink-0" />
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-white mb-2">Copy your Secret API Key</h3>
-                <p className="text-slate-300 text-sm mb-4">
+                <h3 className="text-lg font-bold text-amber-800 dark:text-amber-300 mb-2">Copy your Secret API Key</h3>
+                <p className="text-amber-700 dark:text-amber-400 text-sm mb-4">
                   For security reasons, we can only display this key once. If you lose it, you will have to revoke it and generate a new one.
                 </p>
                 <div className="flex gap-2 max-w-xl">
@@ -97,19 +105,19 @@ export default function APIKeys() {
                     type="text"
                     readOnly
                     value={newKeyData.key}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 font-mono text-amber-400 focus:outline-none focus:ring-0"
+                    className="w-full bg-white dark:bg-navy-900 border border-gray-300 dark:border-navy-600 rounded-lg px-3 py-2.5 font-mono text-sm text-amber-700 dark:text-amber-400 focus:outline-none focus:ring-0"
                   />
                   <button
                     onClick={handleCopy}
-                    className="bg-amber-500 hover:bg-amber-400 text-navy-950 font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 transition-all"
+                    className="bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white font-medium px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors"
                   >
-                    {copied ? <Check size={18} /> : <Copy size={18} />}
+                    {copied ? <Check size={16} /> : <Copy size={16} />}
                     {copied ? 'Copied' : 'Copy'}
                   </button>
                 </div>
                 <button
                   onClick={() => setNewKeyData(null)}
-                  className="mt-4 text-xs font-semibold text-slate-400 hover:text-white transition-all underline"
+                  className="mt-4 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-navy-900 dark:hover:text-white transition-colors underline"
                 >
                   I have copied my key, close this panel
                 </button>
@@ -118,32 +126,32 @@ export default function APIKeys() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Create Form */}
           {isOrgAdmin && (
-            <div className="lg:col-span-1 bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl backdrop-blur-xl h-fit">
-              <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                <Plus className="text-blue-500" size={20} />
+            <div className="lg:col-span-1 bg-white dark:bg-navy-800 border border-gray-200 dark:border-navy-700 p-6 rounded-xl shadow-sm h-fit">
+              <h2 className="text-lg font-semibold text-navy-900 dark:text-white mb-4 flex items-center gap-2">
+                <Plus className="text-amber-600 dark:text-amber-400" size={18} />
                 Generate New Key
               </h2>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1.5">Key Name / Description</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Key Name / Description</label>
                   <input
                     type="text"
                     value={keyName}
                     onChange={(e) => setKeyName(e.target.value)}
                     required
                     placeholder="e.g. DocuSign Integration"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    className="w-full border border-gray-300 dark:border-navy-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400 focus:border-transparent transition-colors"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1.5">Expiration Period</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Expiration Period</label>
                   <select
                     value={expiresIn}
                     onChange={(e) => setExpiresIn(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    className="w-full border border-gray-300 dark:border-navy-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400 transition-colors"
                   >
                     <option value="30">30 Days</option>
                     <option value="90">90 Days</option>
@@ -153,7 +161,7 @@ export default function APIKeys() {
                 </div>
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                  className="w-full bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
                   Generate API Key
                 </button>
@@ -162,31 +170,31 @@ export default function APIKeys() {
           )}
 
           {/* Keys List */}
-          <div className="lg:col-span-2 bg-slate-800/50 border border-slate-700/50 rounded-2xl overflow-hidden backdrop-blur-xl">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white">Active Keys</h2>
+          <div className="lg:col-span-2 bg-white dark:bg-navy-800 border border-gray-200 dark:border-navy-700 rounded-xl overflow-hidden shadow-sm">
+            <div className="p-6 border-b border-gray-200 dark:border-navy-700">
+              <h2 className="text-lg font-semibold text-navy-900 dark:text-white">Active Keys</h2>
             </div>
-            
+
             {loading ? (
               <div className="p-12 flex justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent" />
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-navy-900 dark:border-amber-400 border-t-transparent" />
               </div>
             ) : keys.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">No active API keys found. Generate one to get started.</div>
+              <div className="p-12 text-center text-gray-400 dark:text-gray-500">No active API keys found. Generate one to get started.</div>
             ) : (
-              <div className="divide-y divide-slate-700/50">
+              <div className="divide-y divide-gray-100 dark:divide-navy-700">
                 {keys.map((k) => (
-                  <div key={k.id} className="p-6 flex items-center justify-between gap-4 hover:bg-slate-800/20 transition-all">
+                  <div key={k.id} className="p-6 flex items-center justify-between gap-4 hover:bg-gray-50 dark:hover:bg-navy-700/40 transition-colors">
                     <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-navy-700 text-gray-500 dark:text-gray-400 flex items-center justify-center">
                         <Key size={18} />
                       </div>
                       <div>
-                        <h4 className="font-bold text-white">{k.name}</h4>
-                        <p className="text-slate-400 text-sm font-mono mt-0.5">
+                        <h4 className="font-semibold text-navy-900 dark:text-white">{k.name}</h4>
+                        <p className="text-gray-500 dark:text-gray-400 text-sm font-mono mt-0.5">
                           {k.prefix}••••••••••••••••
                         </p>
-                        <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
+                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
                           <span className="flex items-center gap-1">
                             <Calendar size={12} />
                             Created: {new Date(k.created_at).toLocaleDateString()}
@@ -197,7 +205,7 @@ export default function APIKeys() {
                               Expires: {new Date(k.expires_at).toLocaleDateString()}
                             </span>
                           ) : (
-                            <span className="text-emerald-400 font-semibold">Never Expires</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Never Expires</span>
                           )}
                           {k.last_used_at && (
                             <span>Last used: {new Date(k.last_used_at).toLocaleDateString()}</span>
@@ -209,7 +217,7 @@ export default function APIKeys() {
                     {isOrgAdmin && (
                       <button
                         onClick={() => handleDelete(k.id)}
-                        className="text-slate-400 hover:text-red-400 p-2 hover:bg-slate-700/50 rounded-lg transition-all"
+                        className="text-gray-400 hover:text-red-500 p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Revoke API Key"
                       >
                         <Trash2 size={16} />
@@ -222,6 +230,7 @@ export default function APIKeys() {
           </div>
         </div>
       </main>
+      </div>
     </div>
   )
 }

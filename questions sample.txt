@@ -1,0 +1,15 @@
+Who are the two parties to this Agreement, and what type of business entities are they?
+What is the stated "Purpose" for which the Receiving Party may use the Confidential Information?
+According to Article 1.1, what steps must the Disclosing Party take to mark written and oral Confidential Information?
+List the four categories of information excluded from the definition of "Confidential Information" under Article 1.3.
+Under Article 2.4, to whom may the Receiving Party disclose Confidential Information, and what three conditions must be met?
+Who bears responsibility if a Representative of the Receiving Party breaches the Agreement?
+What does Article 3.3 prohibit the Receiving Party from doing with the Disclosing Party's software or technology?
+What is the total duration of the Agreement's term, and what notice period is required for early termination?
+How long do the confidentiality obligations survive after termination or expiration of the Agreement?
+What must the Receiving Party do with Confidential Information upon termination, and what additional step is required to confirm compliance?
+What types of claims are covered under the indemnification clause in Article 5.1, and how long does this obligation survive?
+Why does Article 6 allow the Disclosing Party to seek injunctive relief without posting a bond?
+What governing law applies to this Agreement, and what is the designated arbitration body and location for dispute resolution?
+What happens if mediation fails to resolve a dispute within thirty days?
+According to Article 8.5, under what circumstances can either Party assign the Agreement without the other Party's consent?

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { GitCompare, Loader2, CheckCircle, XCircle, AlertCircle, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Navbar from '../components/Navbar'
+import WorkspaceTopBar from '../components/WorkspaceTopBar'
 import { getDocuments, getTemplates, matchTemplate } from '../api'
 
 const STATUS_ICONS = {
@@ -51,20 +52,22 @@ export default function TemplateMatch() {
   }
 
   const getScoreRing = (score) => {
-    if (score >= 80) return 'from-emerald-500 to-teal-500'
-    if (score >= 50) return 'from-amber-500 to-orange-500'
-    return 'from-red-500 to-rose-500'
+    if (score >= 80) return 'border-emerald-500'
+    if (score >= 50) return 'border-amber-500'
+    return 'border-red-500'
   }
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-navy-900">
       <Navbar />
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0">
+        <WorkspaceTopBar />
+        <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
           {/* Header */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <GitCompare size={20} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-amber-400 flex items-center justify-center">
+              <GitCompare size={20} className="text-navy-900" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Template Matching</h1>
@@ -80,7 +83,7 @@ export default function TemplateMatch() {
                 <select
                   value={selectedDoc}
                   onChange={(e) => setSelectedDoc(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400"
                 >
                   <option value="">Select document...</option>
                   {documents.map((d) => (
@@ -93,7 +96,7 @@ export default function TemplateMatch() {
                 <select
                   value={selectedTemplate}
                   onChange={(e) => setSelectedTemplate(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-navy-600 rounded-lg text-sm bg-white dark:bg-navy-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-navy-900 dark:focus:ring-amber-400"
                 >
                   <option value="">Select template...</option>
                   {templates.map((t) => (
@@ -105,7 +108,7 @@ export default function TemplateMatch() {
             <button
               onClick={handleMatch}
               disabled={!selectedDoc || !selectedTemplate || loading}
-              className="w-full px-4 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg font-medium hover:from-cyan-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              className="w-full px-4 py-3 bg-navy-900 hover:bg-navy-800 dark:bg-amber-400 dark:hover:bg-amber-500 dark:text-navy-900 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
                 <><Loader2 size={18} className="animate-spin" /> Analyzing...</>
@@ -120,8 +123,8 @@ export default function TemplateMatch() {
             <div className="space-y-6 animate-fade-in">
               {/* Score card */}
               <div className="bg-white dark:bg-navy-800 rounded-xl border border-gray-200 dark:border-navy-700 p-6 shadow-sm text-center">
-                <div className={`inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br ${getScoreRing(result.compliance_score)} p-1`}>
-                  <div className="w-full h-full rounded-full bg-white dark:bg-navy-800 flex items-center justify-center">
+                <div className={`inline-flex items-center justify-center w-24 h-24 rounded-full border-4 ${getScoreRing(result.compliance_score)}`}>
+                  <div className="w-full h-full rounded-full flex items-center justify-center">
                     <span className={`text-3xl font-bold ${getScoreColor(result.compliance_score)}`}>
                       {result.compliance_score}%
                     </span>
@@ -169,6 +172,7 @@ export default function TemplateMatch() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )
